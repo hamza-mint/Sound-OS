@@ -1,43 +1,48 @@
-# 🎙️ Sound OS
+# Sound OS
 
-مشروع جامعي (مادة Operating Systems): واجهة تحكم صوتي لنظام Linux. بدل الماوس، **تقول الأمر بصوتك** ولينكس ينفّذه.
+A university Operating Systems project. Sound OS is a voice control tool for Linux. You speak a command, and Linux runs it.
 
 ```
-🎤 صوت → [STT] نص → [NLU] اسم الأمر → [تنفيذ على لينكس] → [رد للمستخدم]
+voice -> [speech to text] -> [find the command] -> [run it on Linux] -> [reply to the user]
 ```
 
-## الهدف الأدنى (MVP)
-3 أوامر شغالة من الميكروفون للتنفيذ:
-1. "افتح المتصفح" ← `open_browser`
-2. "ارفع الصوت" ← `volume_up`
-3. "اطفي الجهاز" (بعد تأكيد) ← `shutdown`
+## Small first version (MVP)
 
-أي حاجة بعد كده إضافة.
+These 3 commands should work from the microphone:
 
-## التشغيل (على Xubuntu 24.04)
+1. "open the browser" -> `open_browser`
+2. "turn the volume up" -> `volume_up`
+3. "shut down the computer" (after a confirm step) -> `shutdown`
+
+Anything else can wait until later.
+
+## How to run (on Xubuntu 24.04)
+
 ```bash
-git clone <رابط الـ Repo>
-cd sound-os
+git clone https://github.com/hamza-mint/Sound-OS.git
+cd Sound-OS
 pip install -r requirements.txt
-python3 src/main.py          # وضع تجربة آمن: بيطبع الأمر من غير ما ينفّذه
-python3 src/main.py --real   # تنفيذ حقيقي (بحذر!)
-python3 -m pytest tests      # الاختبارات
+python3 src/main.py          # safe test mode: prints the command, does not run it
+python3 src/main.py --real   # real run (use with care)
+python3 -m pytest tests      # tests
 ```
 
-## هيكل المشروع
-| المسار | الدور | الوظيفة |
+## Project files
+
+| Path | Team role | What it does |
 |---|---|---|
-| `src/speech.py` | دور 2 | صوت ← نص (حاليًا بيقرأ من الكيبورد مؤقتًا) |
-| `src/intent.py` | دور 3 | نص ← اسم الأمر |
-| `src/execution.py` | دور 4 | تنفيذ الأمر على لينكس (Allowlist + تأكيد للحساس) |
-| `src/ui.py` | دور 5 | عرض الحالة + رد صوتي |
-| `src/main.py` | دور 1 | ربط المراحل |
-| `tests/` | دور 6 | الاختبارات وجدول الـ QA |
-| `docs/` | دور 7 + 1 | التقارير الأسبوعية و`ARCHITECTURE.md` |
+| `src/speech.py` | Role 2 | Turns voice into text (for now it reads from the keyboard) |
+| `src/intent.py` | Role 3 | Turns text into a command name |
+| `src/execution.py` | Role 4 | Runs the command on Linux (allowlist + confirm for risky commands) |
+| `src/ui.py` | Role 5 | Shows status and speaks a reply |
+| `src/main.py` | Role 1 | Connects all the steps |
+| `tests/` | Role 6 | Tests and QA notes |
+| `docs/` | Role 7 + 1 | Weekly reports and `ARCHITECTURE.md` |
 
-التفاصيل الكاملة للاتفاق بين المراحل في [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+The full plan between the parts is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-## قواعد مهمة
-- **لا ترفع أسرار** (API keys وغيرها) على GitHub. استخدم `.env` (موجود في `.gitignore`).
-- **ممنوع تنفيذ نص خام كأمر نظام.** كل أمر لازم يكون في الـ Allowlist.
-- أي تغيير في الاتفاق بين المراحل يتبلّغ للفريق كله ويتسجّل في `docs/ARCHITECTURE.md`.
+## Important rules
+
+- Do not put secrets (API keys and similar) on GitHub. Use a `.env` file (it is in `.gitignore`).
+- Do not run raw text as a system command. Every command must be on the allowlist.
+- If you change how the parts work together, tell the whole team and update `docs/ARCHITECTURE.md`.
