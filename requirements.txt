@@ -1,4 +1,2 @@
-# المكتبات الأساسية (خفيفة). كل دور يضيف اللي يحتاجه بعد ما الفريق يتفق.
-rapidfuzz
-pytest
-# دور 2 هيضيف مكتبة STT (مثلًا vosk) بعد التحقق من الصفحة الرسمية: https://alphacephei.com/vosk/
+# Add light libraries here after the team agrees.
+# Examples later: rapidfuzz, vosk, pytest

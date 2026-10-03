@@ -1,16 +1,16 @@
-# أسرار — ممنوع ترفعها أبدًا
+# Secrets — never upload these
 .env
 *.key
 *.pem
 
-# بايثون
+# Python
 __pycache__/
 *.pyc
 .venv/
 venv/
 .pytest_cache/
 
-# ملفات تقيلة (تتنقل عن طريق Google Drive مش GitHub)
+# Large files (use Google Drive, not GitHub)
 *.ova
 *.iso
 *.wav
@@ -18,7 +18,7 @@ venv/
 models/
 vosk-model*/
 
-# ملفات المحرر والنظام
+# Editor and OS
 .vscode/
 .idea/
 .DS_Store
