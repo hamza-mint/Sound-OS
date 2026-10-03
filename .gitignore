@@ -1,0 +1,24 @@
+# أسرار — ممنوع ترفعها أبدًا
+.env
+*.key
+*.pem
+
+# بايثون
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# ملفات تقيلة (تتنقل عن طريق Google Drive مش GitHub)
+*.ova
+*.iso
+*.wav
+*.mp3
+models/
+vosk-model*/
+
+# ملفات المحرر والنظام
+.vscode/
+.idea/
+.DS_Store
