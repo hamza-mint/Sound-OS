@@ -1,0 +1,8 @@
+faster-whisper
+numpy
+soundfile
+sounddevice
+jiwer
+rapidfuzz
+psutil
+pytest
