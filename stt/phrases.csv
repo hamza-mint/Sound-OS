@@ -1,0 +1,37 @@
+lang,reference,intent
+en,open the browser,open_app
+en,open the calculator,open_app
+en,close the browser,close_app
+en,close the calculator,close_app
+en,turn the volume up,volume_up
+en,turn the volume down,volume_down
+en,mute the sound,mute
+en,increase brightness,brightness_up
+en,decrease brightness,brightness_down
+en,create a new file called notes,create_file
+en,open the documents folder,open_folder
+en,search for linux tutorials,web_search
+en,play music,play_media
+en,shut down the computer,shutdown
+en,delete the file called notes,delete_file
+en,yes,confirm_yes
+en,no,confirm_no
+ar,افتح المتصفح,open_app
+ar,افتح الحاسبة,open_app
+ar,اقفل المتصفح,close_app
+ar,اقفل الحاسبة,close_app
+ar,علي الصوت,volume_up
+ar,وطي الصوت,volume_down
+ar,اكتم الصوت,mute
+ar,علي النور,brightness_up
+ar,وطي النور,brightness_down
+ar,اعمل ملف جديد اسمه نوتس,create_file
+ar,افتح فولدر المستندات,open_folder
+ar,دور على دروس لينكس,web_search
+ar,شغل مزيكا,play_media
+ar,اطفي الجهاز,shutdown
+ar,امسح الملف نوتس,delete_file
+ar,ايوه,confirm_yes
+ar,لا,confirm_no
+en,,none
+ar,,none

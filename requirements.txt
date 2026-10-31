@@ -1,1 +1,5 @@
+# Sound OS - Project Requirements
 pytest>=7
+faster-whisper>=1.0.0
+soundfile>=0.12.0
+numpy>=1.24.0

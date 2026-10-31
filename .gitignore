@@ -14,6 +14,8 @@ venv/
 *.ova
 *.iso
 *.wav
+!stt/*.wav
+!tests/fixtures/*.wav
 *.mp3
 models/
 vosk-model*/
