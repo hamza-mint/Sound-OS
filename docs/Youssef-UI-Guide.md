@@ -27,7 +27,46 @@
 
 ---
 
-## ثانياً — مجلدك في الـ Repo
+## 🚧 ثانياً — ما هي العوائق الحالية في غياب باقي الأدوار؟ وكيف تعمل بدونهم؟
+
+> [!NOTE]
+> **الوضع الفعلي للريبو الآن:**  
+> موديول **محمود** (STT) وموديول **كيرلس** (Intent Parser) جاهزان ومدموجان في `main` بنجاح كامل.  
+> لكن زملائك: **أبرام** (Audio/Wake Word) و **أنتونيوس** (Safety) و **ياسين** (Executor) لم ينتهوا بعد من تسليم عملهم.
+
+### ❓ العوائق الثلاثة لو انتظرتهم:
+1. **عائق الميكروفون وكلمة التنبيه (غياب موديول أبرام):**  
+   لن تستطيع تجربة فتح الواجهة تلقائياً بسماع صوتك في المايك أو بكلمة التنبيه الحقيقية.
+2. **عائق غياب المنفّذ الفعلي للأوامر (غياب موديول ياسين):**  
+   لن تصلك رسائل ديناميكية ناتجة عن تشغيل برامج فعلية (مثل فتح نافذة فايرفوكس بالفعل)، والـ `message` التي تصل حالياً هي الـ Stub الثابتة (`"تم."`).
+3. **عائق غياب ربط أحداث الـ UI في `main.py`:**  
+   ملف `main.py` حالياً يستدعي `speak()` و `notify()` فقط في نهاية الأمر، ولا يستدعي `on_wake()` أو `on_heard()` بعد لأن كيرلس ينتظر أن تنهي ملف `coucou_bridge.py`.
+
+---
+
+### 🛡️ كيف تعمل الآن باستقلالية تامة 100%؟
+
+معمارية المشروع مصممة بنظام **Stubs & Loose Coupling**، مما يعني أنك **لست معطلاً على الإطلاق!**  
+كل ما عليك هو العمل داخل مجلدك `ui_tts/` فقط على 4 أجزاء مستقلة:
+
+```
+ui_tts/
+├── __init__.py        ← إعداد speak() بـ Piper + espeak-ng و notify() و play_wake_sound()
+├── replies.json       ← جدول الردود لكل الأوامر الـ 13 (عربي وإنجليزي)
+├── coucou_bridge.py   ← جسر Coucou أو نافذة Tkinter البديلة
+└── mock_runner.py     ← سكربت محاكاة تختبر بيه دورك كامل من أوله لآخره بدون مايك
+```
+
+**طريقة الاختبار بدون انتظار أحد:**
+- **اختبار نطق الردود والإشعارات:** شغّل أمر الـ Pipeline بنص تجريبي عبر:
+  ```bash
+  python main.py --text "افتح فايرفوكس"
+  ```
+- **اختبار دورة الواجهة كاملة:** شغّل سكربت المحاكاة المباشر `mock_runner.py` (مشروح في الخطوة 5 أدناه).
+
+---
+
+## ثالثاً — مجلدك في الـ Repo
 
 ```
 Sound-OS/
@@ -385,9 +424,81 @@ def play_wake_sound() -> None:
 
 ---
 
-### 🔴 الخطوة 5 — قل لكيرلس إنك جهزت
+---
 
-بعد ما تخلص الخطوات 1-4، كيرلس هيضيف السطور دي في `main.py`:
+### 🟣 الخطوة 5 — اكتب سكربت المحاكاة المستقل `ui_tts/mock_runner.py`
+
+بما أن باقي الفريق (أبرام، ياسين، أنتونيوس) لسه ما خلصوش، السكربت ده هو **سلاحك السري**!  
+بيحاكي دورة حياة الأمر كاملة بالترتيب وبدون ما تحتاج مايك أو برامج حقيقية:
+
+**أنشئ الملف:** `ui_tts/mock_runner.py`
+
+```python
+"""
+ui_tts/mock_runner.py — Standalone Lifecycle Simulator (Owner: Youssef Alam)
+اختبار دورة الواجهة كاملة بشكل مستقل دون انتظار الميكروفون أو الـ Executor:
+    python3 -m ui_tts.mock_runner
+"""
+import time
+from pathlib import Path
+from ui_tts import speak, notify, play_wake_sound
+from ui_tts.coucou_bridge import on_wake, on_heard, on_done
+
+
+def simulate_pipeline(phrase: str, lang: str, response_text: str, success: bool = True):
+    print("=" * 60)
+    print(f"🎬 محاكاة أمر صوتي: '{phrase}' (اللغة: {lang})")
+    print("=" * 60)
+
+    # 1. التنبيه الصوتي والواجهة
+    print("1️⃣ [Wake] تشغيل صوت التنبيه وإظهار الواجهة...")
+    play_wake_sound()
+    on_wake()
+    time.sleep(1.2)
+
+    # 2. عرض النص المنطوق
+    print(f"2️⃣ [STT] عرض النص في الشريط: '{phrase}'...")
+    on_heard(phrase)
+    time.sleep(1.5)
+
+    # 3. إظهار النتيجة في الواجهة
+    print(f"3️⃣ [Result] تحديث حالة الواجهة: {'✅ نجاح' if success else '❌ خطأ'}...")
+    on_done(success)
+    time.sleep(0.5)
+
+    # 4. إشعار سطح المكتب ونطق الرد
+    print(f"4️⃣ [Feedback] إرسال الإشعار ونطق الرد: '{response_text}'...")
+    notify("Sound OS", response_text)
+    speak(response_text, lang)
+
+    print("✨ اكتملت المحاكاة بنجاح!\n")
+
+
+if __name__ == "__main__":
+    print("🚀 بدء تجربة المحاكاة المستقلة لموديول الواجهة والصوت...\n")
+    # تجربة أمر عربي ناجح
+    simulate_pipeline("افتح المتصفح", "ar", "تم فتح المتصفح", success=True)
+    time.sleep(2)
+
+    # تجربة أمر رفع الصوت بالإنجليزي
+    simulate_pipeline("volume up", "en", "Volume increased", success=True)
+    time.sleep(2)
+
+    # تجربة حالة خطأ
+    simulate_pipeline("شغل حاجة غريبة", "ar", "لم أفهم الأمر", success=False)
+```
+
+**شغّل وجرّب بنفسك:**
+```bash
+python3 -m ui_tts.mock_runner
+```
+المفروض تسمع صوت التنبيه → الشريط يظهر فيه النص → تسمع الرد الصوتي بالعربي والإنجليزي → يظهر الإشعار!
+
+---
+
+### 🔴 الخطوة 6 — قل لكيرلس إنك جهزت
+
+بعد ما تخلص الخطوات وتتأكد إن `mock_runner` شغال 100%، كيرلس هيضيف السطور دي في `main.py`:
 
 ```python
 # main.py — هذا الكود لكيرلس، مش بتاعك
@@ -412,7 +523,7 @@ on_done(result["success"])           # ✅ ده bridge بتاعك
 
 ---
 
-## رابعاً — جدول اختبار QA (لدور 6 — Kirollos)
+## خامساً — جدول اختبار QA (لدور 6 — Kirollos)
 
 | # | الاختبار | المتوقع | نجح؟ |
 |---|---|---|---|
@@ -421,14 +532,15 @@ on_done(result["success"])           # ✅ ده bridge بتاعك
 | 3 | `speak("", "ar")` | صمت تام (لا شيء) | ⬜ |
 | 4 | `notify("Sound OS", "تم")` | إشعار يظهر على سطح المكتب | ⬜ |
 | 5 | `python3 -m ui_tts.coucou_bridge` | pill → نص → خلّص | ⬜ |
-| 6 | `on_done(False)` | الـ pill يتحوّل لحالة خطأ | ⬜ |
-| 7 | Coucou مقفول والمشروع شغال | المشروع يكمل بدون أي خطأ | ⬜ |
-| 8 | `paplay ui_tts/assets/wake.wav` | صوت التنشيط يُسمع | ⬜ |
-| 9 | `free -h` قبل وبعد Coucou | نسجّل الفرق في RAM | ⬜ |
+| 6 | `python3 -m ui_tts.mock_runner` | دورة المحاكاة كاملة تعمل بسلاسة | ⬜ |
+| 7 | `on_done(False)` | الـ pill يتحوّل لحالة خطأ | ⬜ |
+| 8 | Coucou مقفول والمشروع شغال | المشروع يكمل بدون أي خطأ | ⬜ |
+| 9 | `paplay ui_tts/assets/wake.wav` | صوت التنشيط يُسمع | ⬜ |
+| 10 | `free -h` قبل وبعد Coucou | نسجّل الفرق في RAM | ⬜ |
 
 ---
 
-## خامساً — لو Coucou ما اشتغلش (الخطة البديلة)
+## سادساً — لو Coucou ما اشتغلش (الخطة البديلة)
 
 لو Coucou تقيل أو ما اشتغلش على أضعف جهاز في الفريق — **مش مشكلة.**
 
@@ -465,7 +577,40 @@ def on_done(success):
 
 ---
 
-## سادساً — ملخص التسليم
+## سابعاً — 🤖 برومبت جاهز ليوسف (AI Assistant Prompt)
+
+> [!TIP]
+> **كيف تستخدم هذا البرومبت؟**  
+> انسخ النص التالي بالكامل وضعه في محادثة مع أي مساعد ذكاء اصطناعي (مثل ChatGPT أو Claude أو Cursor) ليساعدك في بناء موديول `ui_tts` وتجربته فوراً:
+
+```text
+You are a senior Linux and Python systems developer pair-programming with me on an offline voice assistant project named "Sound OS" on Linux (Xubuntu/Ubuntu).
+My role is Youssef Alam (Role 5: UI & TTS Feedback), and I am responsible ONLY for the directory: `ui_tts/`.
+
+Context & Current Team State:
+- Teammates handling upstream modules (Abram for Wake Word, Yassin for Command Executor, Antonius for Safety) have not finished their modules yet.
+- However, our repository has a strict CONTRACT.md and fully working stubs, with 214 pytest tests passing.
+- I must work 100% independently in standalone mode without waiting for them and without touching any files outside `ui_tts/` (do NOT edit main.py, executor/, intent_parser/, safety/, or stt/).
+
+My Requirements:
+1. CONTRACT.md Rule 7 Compliance:
+   - `speak(text: str, lang: str) -> None`: Uses Piper TTS offline (`ar_JO-kareem-medium` for Arabic, `en_US-lessac-medium` for English) piped to `aplay -r 22050 -f S16_LE -c 1`. If Piper fails or is not installed, silently falls back to `espeak-ng -v <lang>`. Never raises exceptions. Empty text does nothing.
+   - `notify(title: str, body: str) -> None`: Desktop notifications via `notify-send`. Never raises exceptions.
+   - `play_wake_sound() -> None`: Non-blocking playback of `ui_tts/assets/wake.wav` via `paplay` or `aplay`. Never raises exceptions.
+2. System Responses (`ui_tts/replies.json`):
+   - A complete bilingual JSON dictionary (Egyptian Arabic & English) covering all 13 system intents: open_app, close_app, volume_up, volume_down, mute, brightness_up, brightness_down, create_file, open_folder, web_search, play_media, shutdown, delete_file, plus unknown, error, and confirmation queries.
+3. Visual Bridge (`ui_tts/coucou_bridge.py`):
+   - Integrates with the Coucou Linux island app via `coucou-hook` with functions `on_wake()`, `on_heard(text)`, and `on_done(success)`.
+   - If Coucou is not installed, silently no-op (or fallback to a clean Tkinter window).
+4. Standalone Simulator (`ui_tts/mock_runner.py`):
+   - A test script that simulates a full cycle (wake sound -> on_wake -> on_heard -> speak -> notify -> on_done) so I can verify my entire UI and voice experience standalone without microphone or real executor.
+
+Please write clean, robust, production-quality Python code for these files, and give me the exact bash commands to install dependencies (piper-tts, espeak-ng, alsa-utils) and test everything in my Linux VM.
+```
+
+---
+
+## ثامناً — ملخص التسليم
 
 ```
 ui_tts/
