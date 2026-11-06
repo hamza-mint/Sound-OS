@@ -19,7 +19,7 @@
 
 ### 2. أدلة الأدوار والتقنيات (Guides & Manuals)
 * [**`Youssef-UI-Guide.md`**](./Youssef-UI-Guide.md) — **دليل يوسف علام (UI & Text-to-Speech)**  
-  دليل تطبيقي شامل لدور الواجهة البصرية ونطق الصوت: إعداد Piper TTS و espeak-ng، ملف `replies.json`، ربط شريط Coucou الجزيرة، وخطة الـ Tkinter البديلة.
+  دليل تطبيقي شامل لدور الواجهة البصرية ونطق الصوت: تحليل العوائق في غياب باقي الأدوار وكيفية العمل المستقل، إعداد Piper TTS و espeak-ng، ملف `replies.json`، ربط شريط Coucou الجزيرة، سكربت المحاكاة المستقل `mock_runner.py`، وخطة الـ Tkinter البديلة، بالإضافة لـ **برومبت جاهز للذكاء الاصطناعي**.
 * [**`LLM-setup.md`**](./LLM-setup.md) — **دليل إعداد وتشغيل النماذج المحلية (Ollama & Qwen)**  
   خطوات تثبيت وتشغيل نماذج الذكاء الاصطناعي محلياً عبر Ollama واستخدامها كـ Fallback للـ Intent Parser.
 * [**`llm-basics.md`**](./llm-basics.md) — **المفاهيم الأساسية لنماذج اللغة (LLM Basics)**  

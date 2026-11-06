@@ -147,11 +147,15 @@ git pull origin <اسم-فرعك>
 - **الفرع المخصص:** `Youssef-(UI-TTS)`
 - **المجلد الخاص به:** `ui_tts/`
 - **الدليل التفصيلي المجهز له:** يرجى قراءة [`docs/Youssef-UI-Guide.md`](./Youssef-UI-Guide.md)
-- **الدوال المطلوبة (حسب CONTRACT.md):**
-  1. `speak(text: str, lang: str) -> None`: نطق الرد الصوتي باستخدام محرك Piper TTS (مع espeak-ng كـ fallback).
-  2. `notify(title: str, body: str) -> None`: إظهار إشعار على سطح المكتب عبر `notify-send`.
-  3. `coucou_bridge.py`: إرسال إشارات الحالة للواجهة البصرية الجزيرة (Coucou / Mochi) أو نافذة Tkinter البديلة.
-- **الخطوة الأولى:** إعداد ملف الردود `ui_tts/replies.json` وتجربة نطق جملة باللغة العربية والإنجليزية.
+- **الوضع الحالي والعوائق:**
+  - موديولات أبرام (المايك) وياسين (المنفّذ) لم تنتهِ بعد، لكن **يوسف غير معطّل تماماً** لأن النظام مبني بـ Loose Stubs.
+  - لا ينتظر المايك أو الـ Executor، بل يعمل بوضع **المحاكاة المستقلة (Standalone Mode)**.
+- **المهام المستقلة المطلوبة الآن:**
+  1. `ui_tts/replies.json`: مصفوفة ردود الأوامر الـ 13 بالعربي المصري والإنجليزي.
+  2. `ui_tts/__init__.py`: نطق الرد الصوتي `speak()` بـ Piper TTS مع fallback صامت لـ `espeak-ng`، وإشعار `notify()`، وتشغيل صوت التنبيه `play_wake_sound()`.
+  3. `ui_tts/coucou_bridge.py`: إرسال أحداث الحالة لشريط Coucou الجزيرة (`on_wake`, `on_heard`, `on_done`) أو بديل Tkinter.
+  4. `ui_tts/mock_runner.py`: سكربت محاكاة لاختبار دورة حياة الواجهة كاملة بضغطة زر دون مايك.
+- **برومبت الذكاء الاصطناعي:** متاح داخل [`docs/Youssef-UI-Guide.md`](./Youssef-UI-Guide.md) في القسم السابع، يمكن ليوسف نسخه مباشرة لأي شات AI لإنشاء واختبار كود موديوله.
 
 ---
 
