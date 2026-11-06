@@ -18,6 +18,8 @@
 ---
 
 ### 2. أدلة الأدوار والتقنيات (Guides & Manuals)
+* [**`Abram-Audio-Guide.md`**](./Abram-Audio-Guide.md) — **دليل أبرام (Audio & Wake Word)**  
+  دليل تطبيقي مبسط ومباشر لموديول الصوت: التقاط الميكروفون، كشف كلمة التنبيه، تسجيل الصوت بصيغة 16kHz Mono WAV لـ Whisper، طريقة الاختبار البسيطة، وأوامر الرفع لفرعه الخاص على GitHub.
 * [**`Youssef-UI-Guide.md`**](./Youssef-UI-Guide.md) — **دليل يوسف علام (GUI & Desktop Notifications)**  
   دليل تطبيقي مبسط ومباشر مخصص للواجهة الرسومية فقط (GUI): إظهار الشريط العائم التفاعلي (Floating Island Pill)، إشعارات سطح المكتب عبر `notify-send`، طريقة الاختبار البصري السريعة، وأوامر الرفع لفرعه الخاص على GitHub.
 * [**`LLM-setup.md`**](./LLM-setup.md) — **دليل إعداد وتشغيل النماذج المحلية (Ollama & Qwen)**  

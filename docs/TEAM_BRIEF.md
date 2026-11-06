@@ -113,10 +113,11 @@ git pull origin <اسم-فرعك>
 ### 1️⃣ دور أبرام — Audio & Wake Word
 - **الفرع المخصص:** `Abram-(Audio-WakeWord)`
 - **المجلد الخاص به:** `audio/`
+- **الدليل التفصيلي المجهز له:** يرجى قراءة [`docs/Abram-Audio-Guide.md`](./Abram-Audio-Guide.md)
 - **الدوال المطلوبة (حسب CONTRACT.md):**
-  1. `wait_for_wake_word() -> None`: دالة تحجب (blocks) حتى يتم سماع كلمة التنبيه (Wake Word).
-  2. `record_utterance(max_seconds=6.0) -> str`: تسجل صوت المستخدم حتى يتوقف عن الكلام، وترجع مسار ملف صوتي `WAV` (معدل 16kHz mono).
-- **الخطوة الأولى:** استخدام `openwakeword` أو `porcupine` لتسجيل كلمة التنبيه واختبار التقاط الصوت مع VirtualBox/Linux.
+  1. `wait_for_wake_word() -> None`: الاستماع حتى رصد كلمة التنبيه.
+  2. `record_utterance(max_seconds=6.0) -> str`: تسجيل كلام المستخدم وحفظه في ملف 16kHz mono WAV لـ Whisper.
+- **الاختبار والرفع:** تشغيل `python3 -m audio.test_audio` والرفع إلى فرعه `Abram-(Audio-WakeWord)`.
 
 ---
 
