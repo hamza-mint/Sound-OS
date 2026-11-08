@@ -36,10 +36,28 @@ def speak(text: str, lang: str = "ar") -> None:
         pass
 
 
-def play_wake_sound() -> None:
-    """Play the wake chime/sound (non-blocking). Never raises."""
+def play_wake_ack() -> None:
+    """Play 'I am here' response when wake word is detected. Never raises."""
     try:
-        wav = Path(__file__).parent / "assets" / "wake.wav"
+        wav = Path(__file__).parent / "assets" / "i_am_here.wav"
+        if not wav.is_file():
+            wav = Path(__file__).parent / "assets" / "wake.wav"
+        if wav.is_file():
+            subprocess.run(
+                ["aplay", "-q", str(wav)],
+                check=False,
+                timeout=3,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    except Exception:
+        pass
+
+
+def play_done_sound() -> None:
+    """Play 'Done' response when a command is executed. Never raises."""
+    try:
+        wav = Path(__file__).parent / "assets" / "done.wav"
         if wav.is_file():
             subprocess.Popen(
                 ["aplay", "-q", str(wav)],
@@ -48,4 +66,10 @@ def play_wake_sound() -> None:
             )
     except Exception:
         pass
+
+
+def play_wake_sound() -> None:
+    """Play wake sound cue. Never raises."""
+    play_wake_ack()
+
 

@@ -9,7 +9,7 @@ from stt import transcribe
 from intent_parser import parse, parse_yes_no
 from safety import check
 from executor import execute
-from ui_tts import speak, notify, play_wake_sound
+from ui_tts import speak, notify, play_wake_ack, play_done_sound
 from ui_tts.coucou_bridge import on_wake, on_heard, on_done
 
 
@@ -30,6 +30,8 @@ def handle(text, ask_yes_no):
             on_done(False)
             return {"success": False, "message": "cancelled"}
     result = execute(parsed)                      # {"success": bool, "message": str}
+    if result.get("success", False):
+        play_done_sound()
     speak(result["message"], lang)
     notify("Sound OS", result["message"])
     on_done(result.get("success", False))
@@ -62,10 +64,9 @@ if __name__ == "__main__":
         print("[Sound OS] Ready and listening for wake word...")
         while True:
             wait_for_wake_word()
-            print("[Sound OS] 🔔 Wake word detected!")
-            play_wake_sound()
+            print("[Sound OS] 🔔 Wake word detected! 'I am here'")
             on_wake()
-            speak("نعم", "ar")
+            play_wake_ack()
             raw_text = listen_text()
             if raw_text:
                 print(f"[Sound OS] Heard: {raw_text!r}")
