@@ -16,6 +16,7 @@ venv/
 *.wav
 !stt/*.wav
 !tests/fixtures/*.wav
+!ui_tts/assets/*.wav
 *.mp3
 models/
 vosk-model*/
