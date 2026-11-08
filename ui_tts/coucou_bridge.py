@@ -18,14 +18,20 @@ except Exception:
     _PIL = False
 
 # ---------- Settings (tweak freely) ----------
-LISTENING_TEXT = "Testing"   # shown while listening (3 dots animate after it)
-W, H = 420, 640              # window size (logical pixels, scaled on hi-dpi screens)
+LISTENING_TEXT = "Listening"  # shown while listening (3 dots animate after it)
+W, H = 420, 700              # window size (logical pixels, scaled on hi-dpi screens)
 SS = 3                       # anti-aliasing: draw 3x bigger, shrink down (2 = faster)
 ALWAYS_ON_TOP = False
 SPLASH_SECONDS = 1.4         # startup: Chris flies in (keep it short)
 RESULT_SECONDS = 2.0         # how long the check / cross stays
+TYPE_CPS = 34                # typewriter speed of the heard text (characters / second)
+STATUS_Y = 546               # y of the status word
+CARD = (24, 580, 396, 680)   # transcript card (x1, y1, x2, y2)
+HINT = "Waiting for you..."  # card text while idle and nothing was heard yet
 
 BG = (21, 23, 28)
+BG_TOP = (30, 34, 46)         # background gradient (top) -> BG (bottom)
+CARD_BG = (34, 38, 50)
 ACCENT = (110, 168, 255)
 GREEN = (52, 199, 89)
 RED = (255, 59, 48)
@@ -145,6 +151,77 @@ class _Pen:
                        fill=fill, outline=outline, width=max(1, int(width * k)))
 
 
+# ---------- text drawing (Arabic needs shaping + right-to-left: Pillow raqm) ----------
+_FONTS_AR = (       # Arabic-capable fonts (nicest first)
+    "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf",
+    "/usr/share/fonts/opentype/fonts-hosny-amiri/Amiri-Regular.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    "C:/Windows/Fonts/segoeui.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+    "/Library/Fonts/Arial Unicode.ttf",
+)
+_FONTS_LAT = (      # fonts with Latin letters (also used for mixed Arabic + English)
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "C:/Windows/Fonts/segoeui.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+    "/Library/Fonts/Arial Unicode.ttf",
+)
+_font_cache = {}
+
+
+def _can_shape():
+    try:
+        from PIL import features
+        return bool(features.check("raqm"))
+    except Exception:
+        return False
+
+
+def _font(px, arabic=False):
+    """Font at px pixels (cached). arabic=True -> pick an Arabic-capable font. None if not found."""
+    try:
+        key = (int(px), bool(arabic))
+        if key not in _font_cache:
+            import os
+            from PIL import ImageFont
+            path = next((f for f in (_FONTS_AR if arabic else _FONTS_LAT) if os.path.exists(f)), None)
+            if path is None:
+                _font_cache[key] = None
+            else:
+                kw = {"layout_engine": ImageFont.Layout.RAQM} if _can_shape() else {}
+                _font_cache[key] = ImageFont.truetype(path, key[0], **kw)
+        return _font_cache[key]
+    except Exception:
+        return None
+
+
+def _has_latin(text):
+    return any(c.isascii() and c.isalpha() for c in text)
+
+
+def _is_rtl(text):
+    return any("\u0590" <= c <= "\u08ff" for c in text)
+
+
+def _wrap(text, font, max_w, rtl):
+    """Greedy word wrap (logical order). Returns a list of lines."""
+    lines, cur = [], ""
+    for w in text.split(" "):
+        t = (cur + " " + w).strip()
+        if cur and font.getlength(t, direction="rtl" if rtl else "ltr") > max_w:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = t
+    if cur:
+        lines.append(cur)
+    return lines
+
+
 # ---------- Coucou island (optional) ----------
 def _try_coucou(name, *args):
     """Call coucou.<name>(*args) if a 'coucou' module with it exists. True if handled."""
@@ -175,15 +252,25 @@ class _Scene:
         self.state = "splash"
         self.level = self.real_level = self.real_t = 0.0
         self.heard = ""
+        self.partial = ""                                # live text while listening
+        self.last = ""                                   # last command (shown dim when idle)
+        self.type_t0 = now
+        self.shape = _can_shape() and _font(20) is not None and _font(20, True) is not None   # draw text with Pillow?
+        self.bg = None                                   # cached gradient background
         self.bub = 0.0                                   # thought bubble size 0..1
         # smoothed pose: head x, head y, head tilt, left hand xy, right hand xy
         self.pose = [0.0, 0.0, 0.0, 158.0, 226.0, 262.0, 226.0]
 
     def handle(self, cmd, arg, now):
         if cmd == "wake":
-            self.state, self.state_t, self.heard = "listening", now, ""
+            self.state, self.state_t, self.heard, self.partial = "listening", now, "", ""
+        elif cmd == "partial":
+            if self.state != "listening":
+                self.state, self.state_t = "listening", now
+            self.partial = str(arg)
         elif cmd == "heard":
             self.state, self.state_t, self.heard = "heard", now, str(arg)
+            self.partial, self.last, self.type_t0 = "", str(arg), now
         elif cmd == "done":
             self.state, self.state_t = ("ok" if arg else "fail"), now
         elif cmd == "level":
@@ -192,6 +279,15 @@ class _Scene:
 
     def _new(self, bg):
         im = Image.new("RGB", (self.pw * SS, self.ph * SS), bg)
+        return im, _Pen(ImageDraw.Draw(im, "RGBA"), self.K)
+
+    def _new_main(self):
+        """Main-screen canvas: soft vertical gradient (built once, then copied)."""
+        if self.bg is None:
+            size = (self.pw * SS, self.ph * SS)
+            top, bot = Image.new("RGB", size, BG_TOP), Image.new("RGB", size, BG)
+            self.bg = Image.composite(bot, top, Image.linear_gradient("L").resize(size))
+        im = self.bg.copy()
         return im, _Pen(ImageDraw.Draw(im, "RGBA"), self.K)
 
     def frame(self, now, measure):
@@ -277,9 +373,11 @@ class _Scene:
 
         self.bub += ((1.0 if thinking else 0.0) - self.bub) * 0.22
 
-        im, pen = self._new(BG)
+        im, pen = self._new_main()
+        self._particles(pen, t, accent)
         self._robot(pen, state, thinking, t, st, dx, accent)
         self._orb(pen, state, t, st, dx, accent, self.level)
+        shown = self._card(pen, state, now, t, accent)
 
         text, dotted = STATUS[state]
         tw = measure(text) / self.S
@@ -287,14 +385,60 @@ class _Scene:
         if dotted:
             pen.set()
             for i in range(3):
-                pen.oval(x0 + tw + 11 + i * 12, 572 - 7 * max(0.0, math.sin(t * 6 - i * 0.9)),
+                pen.oval(x0 + tw + 11 + i * 12, STATUS_Y + 7 - 7 * max(0.0, math.sin(t * 6 - i * 0.9)),
                          3.4, 3.4, fill=WHITE)
         info = {
             "text": text, "x": x0,
             "color": _hex(GREEN if state == "ok" else RED if state == "fail" else WHITE),
-            "sub": self.heard if state in ("heard", "ok", "fail") else "",
+            "sub": "" if self.shape else shown,      # no raqm: Tk draws the text instead
         }
         return im.reduce(SS), info
+
+    # ----- background particles (slow rising dots, brighter while listening) -----
+    def _particles(self, pen, t, accent):
+        pen.set()
+        for i in range(16):
+            x = (37 * i * 7919 % W) + 14 * math.sin(t * 0.35 + i)
+            y = (H + 20) - ((t * (7 + i % 5 * 3) + i * 53) % (H + 40))
+            r = 1.2 + (i % 3) * 0.8
+            a = 28 + 22 * math.sin(t * 0.9 + i) + (30 if self.state == "listening" else 0)
+            pen.oval(x, y, r, r, fill=accent + (int(max(10, a)),))
+
+    # ----- transcript card: live text, typewriter effect, Arabic shaping -----
+    def _card(self, pen, state, now, t, accent):
+        """Draws the card. Returns the text being shown (for the Tk fallback)."""
+        x1, y1, x2, y2 = CARD
+        pen.set()
+        edge = accent + (70,) if state in ("listening", "heard") else (255, 255, 255, 28)
+        pen.rrect(x1 - 1, y1 - 1, x2 + 1, y2 + 1, 19, edge)
+        pen.rrect(x1, y1, x2, y2, 18, CARD_BG)
+
+        if state == "listening":
+            full, dim, label = self.partial, not self.partial, "LISTENING"
+            text = full or "..."
+        elif state in ("heard", "ok", "fail"):
+            full, dim, label = self.heard, False, "YOU SAID"
+            n = int(max(0.0, now - self.type_t0) * TYPE_CPS)
+            text = full[:n]
+        else:
+            full, dim, label = self.last, True, "LAST COMMAND" if self.last else "READY"
+            text = full or HINT
+
+        if self.shape:
+            small = _font(11 * self.K)
+            rtl = _is_rtl(text)
+            big = _font(19 * self.K, arabic=rtl and not _has_latin(text)) if not (rtl and _has_latin(text)) \
+                else _font(19 * self.K)            # mixed Arabic + English: DejaVu covers both
+            col = GREY if dim else WHITE
+            pen.d.text(((x1 + 16) * self.K, (y1 + 10) * self.K), label, font=small, fill=GREY)
+            lines = _wrap(text, big, (x2 - x1 - 32) * self.K, rtl)[-2:]           # last 2 lines
+            for i, ln in enumerate(lines):
+                yy = (y1 + 34 + i * 27) * self.K
+                if rtl:
+                    pen.d.text(((x2 - 16) * self.K, yy), ln, font=big, fill=col, anchor="ra", direction="rtl")
+                else:
+                    pen.d.text(((x1 + 16) * self.K, yy), ln, font=big, fill=col, anchor="la")
+        return text
 
     # ----- the robot -----
     def _robot(self, pen, state, thinking, t, st, dx, accent,
@@ -441,6 +585,9 @@ class _Scene:
             scale = 1 + 0.015 * math.sin(t * 2)
         r = R * scale * (1 + 0.05 * lvl) * pop
         boost = min(1.0, 0.25 + lvl * 1.5)
+        for g in range(4):                                    # soft glow behind the circle
+            gr = r + 70 - g * 14
+            pen.oval(fx, CY, gr, gr, fill=accent + (int(10 * boost + 4 * g),))
 
         for i in reversed(range(RINGS)):                      # semi-transparent wavy rings
             base = r + 15 * pop * (i + 1)
@@ -508,10 +655,10 @@ class _App:
         h = "hidden"
         self.t_title = cv.create_text(W / 2 * S, 28 * S, text="SOUND OS", fill=_hex(GREY),
                                       font=f_title, state=h)
-        self.t_status = cv.create_text(0, 565 * S, anchor="w", text="", fill=_hex(WHITE),
+        self.t_status = cv.create_text(0, STATUS_Y * S, anchor="w", text="", fill=_hex(WHITE),
                                        font=self.f_status, state=h)
-        self.t_sub = cv.create_text(W / 2 * S, 606 * S, text="", fill=_hex(GREY), font=f_sub,
-                                    width=int(340 * S), justify="center", state=h)
+        self.t_sub = cv.create_text(W / 2 * S, (CARD[1] + 52) * S, text="", fill=_hex(WHITE), font=f_sub,
+                                    width=int((CARD[2] - CARD[0] - 32) * S), justify="center", state=h)
         self.items = (self.t_title, self.t_status, self.t_sub)
         self.ui = False
         self.tick()
@@ -559,7 +706,7 @@ class _App:
             self.ui = True
             for it in self.items:
                 cv.itemconfigure(it, state="normal")
-        cv.coords(self.t_status, info["x"] * S, 565 * S)
+        cv.coords(self.t_status, info["x"] * S, STATUS_Y * S)
         cv.itemconfigure(self.t_status, text=info["text"], fill=info["color"])
         cv.itemconfigure(self.t_sub, text=info["sub"])
 
@@ -592,6 +739,8 @@ class _Plain:
                 cmd, arg = _q.get_nowait()
                 if cmd == "wake":
                     self.lbl.config(text=LISTENING_TEXT + "...")
+                elif cmd == "partial":
+                    self.lbl.config(text=LISTENING_TEXT + ": " + str(arg))
                 elif cmd == "heard":
                     self.lbl.config(text="Heard: " + str(arg))
                 elif cmd == "done":
@@ -681,6 +830,26 @@ def on_wake() -> None:
     try:
         if not _try_coucou("on_wake"):
             _send("wake")
+    except Exception:
+        pass
+
+
+def on_partial(text) -> None:
+    """Optional: live (not final) text while the user is still speaking."""
+    try:
+        text = str(text)
+        text = text if len(text) <= 80 else "..." + text[-77:]
+        if not _try_coucou("on_partial", text):
+            _send("partial", text)
+    except Exception:
+        pass
+
+
+def linger(seconds=RESULT_SECONDS + 0.8) -> None:
+    """Keep the process alive a moment so the last result is visible (one-shot runs)."""
+    try:
+        if _thread is not None and _thread.is_alive() and not _closed:
+            time.sleep(seconds)
     except Exception:
         pass
 
