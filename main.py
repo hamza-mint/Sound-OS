@@ -30,11 +30,17 @@ def handle(text, ask_yes_no):
             on_done(False)
             return {"success": False, "message": "cancelled"}
     result = execute(parsed)                      # {"success": bool, "message": str}
-    if result.get("success", False):
+    success = result.get("success", False)
+    msg = result.get("message", "")
+    if success:
         play_done_sound()
-    speak(result["message"], lang)
-    notify("Sound OS", result["message"])
-    on_done(result.get("success", False))
+        # Avoid double 'Done' speech: play_done_sound() already speaks "Done."
+        if msg.strip().lower() not in ["done.", "done", "تم.", "تم"]:
+            speak(msg, lang)
+    else:
+        speak(msg or "Failed.", lang)
+    notify("Sound OS", msg)
+    on_done(success)
     return result
 
 

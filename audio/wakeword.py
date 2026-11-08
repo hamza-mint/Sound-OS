@@ -19,12 +19,14 @@ deliberately not swallowed so Ctrl+C can still stop the program.)
 """
 
 import os
+import re
 import select
 import sys
+import tempfile
 import time
 from typing import Optional
 
-from .recorder import SAMPLE_WIDTH, MicStream, compute_threshold, rms
+from .recorder import SAMPLE_WIDTH, MicStream, compute_threshold, rms, record_utterance
 
 WAKE_BLOCK_SAMPLES = 1280        # 80 ms - frame size expected by openwakeword
 ENERGY_TRIGGER_BLOCKS = 3        # ~240 ms of sustained loudness
@@ -138,14 +140,81 @@ def _wait_openwakeword(model) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# Energy / Enter fallback
+# Wake phrase detection via STT + Energy/Enter fallback
 # --------------------------------------------------------------------------- #
+def _is_wake_word(text: str) -> bool:
+    """Check if recognized speech contains wake word trigger."""
+    if not text:
+        return False
+    norm = re.sub(r"[^\w\s]", "", text.lower()).strip()
+    custom = os.environ.get("SOUNDOS_WAKEWORD", "").lower().strip()
+    if custom and custom in norm:
+        return True
+
+    # Check model name env (e.g. SOUNDOS_WAKEWORD_MODEL=hey_Dave)
+    model_env = os.environ.get("SOUNDOS_WAKEWORD_MODEL", "").lower().replace("_", " ").strip()
+    if model_env and model_env in norm:
+        return True
+
+    triggers = [
+        "dave", "hey dave", "hi dave",
+        "dev", "hey dev", "hi dev",
+        "jarvis", "hey jarvis",
+        "sound os", "soundos"
+    ]
+    return any(t in norm for t in triggers)
+
+
+def _wait_phrase_or_enter() -> bool:
+    """Wake on 'Hey Dave' / 'Hi Dave' or wake phrase detection, or Enter key."""
+    try:
+        from stt import transcribe
+    except Exception:
+        transcribe = None
+
+    # Fallback to pure energy mode if requested or if stt unavailable
+    if transcribe is None or os.environ.get("SOUNDOS_WAKE_ENERGY_ONLY") == "1":
+        return _wait_energy_or_enter()
+
+    _log("Listening... Say 'Hey Dave' or 'Hi Dave' (or press Enter)")
+    while True:
+        if _enter_pressed():
+            _log("Wake bypassed via Enter key.")
+            return True
+
+        # Capture a short candidate speech clip
+        path = record_utterance(max_seconds=2.5, silence_seconds=0.7)
+        if _enter_pressed():
+            return True
+
+        if not path or not os.path.isfile(path):
+            continue
+
+        try:
+            res = transcribe(path)
+            text = res.get("text", "") if isinstance(res, dict) else ""
+            if text:
+                if _is_wake_word(text):
+                    _log(f"Wake word matched: '{text}' ✅")
+                    return True
+                else:
+                    _log(f"Heard: '{text}' (waiting for 'Hey Dave' / 'Hi Dave')...")
+        except Exception as exc:
+            _log(f"STT check error: {exc}")
+        finally:
+            try:
+                if path and path.startswith(tempfile.gettempdir()):
+                    os.remove(path)
+            except Exception:
+                pass
+
+
 def _wait_energy_or_enter() -> bool:
     """Wake on sustained loud audio or Enter. Returns False if mic unavailable."""
     mic = MicStream(WAKE_BLOCK_SAMPLES)
     if not mic.open():
         return False
-    _log("Wake word not configured - make a loud sound or press Enter...")
+    _log("Wake word waiting (make a loud sound or press Enter)...")
     try:
         threshold: Optional[float] = None
         fixed = os.environ.get("SOUNDOS_WAKE_ENERGY_RMS")
@@ -203,7 +272,7 @@ def wait_for_wake_word() -> None:
                     return
             except Exception as exc:
                 _log(f"openwakeword loop failed: {exc}")
-        if _wait_energy_or_enter():
+        if _wait_phrase_or_enter():
             return
         _wait_enter_only()
     except Exception as exc:
@@ -212,3 +281,4 @@ def wait_for_wake_word() -> None:
             time.sleep(0.5)
         except Exception:
             pass
+
