@@ -1,17 +1,22 @@
-# تشغيل Coucou (الجزيرة + Mochi) مع Sound OS
+# واجهة Sound OS (الشريط العائم)
 
-`main.py` بيبعت أحداث لتطبيق **Coucou** الأصلي (https://github.com/Louis-CFM/coucou) عبر الـ socket بتاعه،
-والتصميم والأنيميشن بيترسموا من Coucou نفسه (مفيش حاجة من تصميمه متنسخة في الريبو، ده بيحترم رخصة الأصول `LICENSE-ASSETS.md`).
+لما تشغّل `python3 main.py` بيظهر **شريط عائم تحت الشاشة** (تصميمنا إحنا، مكتوب من الصفر في `ui_tts/pill.py`):
 
-## على Fedora
-1. نزّل الـ rpm من https://github.com/Louis-CFM/coucou/releases (ملف `Coucou-Linux-*-x86_64.rpm`) وبعدين:
-   `sudo dnf install ./Coucou-Linux-*.rpm`
-2. شغّل Coucou (هتلاقيه في قايمة التطبيقات)، هتشوف الجزيرة فوق الشاشة.
-3. (اختياري) مش لازم تفتح Coucou بإيدك: لو الأمر `coucou` متنصب، `main.py` بيفتحه لوحده. لو متنصب بمكان تاني: `export COUCOU_BIN=/path/to/Coucou.AppImage`.
-4. شغّل `python3 main.py --text "افتح فايرفوكس"`: هيظهر pill اسمه `sound-os` فيه الجملة، وMochi بيفرح لما الأمر ينجح.
+| الحالة | اللي بيظهر |
+|---|---|
+| مستني | "Say a command..." خافت |
+| بيسمعك | أعمدة صوت زرقا بتتحرك |
+| فهم الجملة | الجملة بتتكتب على الشريط (العربي بيتشكّل صح ويتكتب يمين-لشمال) |
+| نجح / فشل | علامة ✓ خضرا / ✕ حمرا وبعدها يرجع مستني |
 
-## لو Coucou مش شغال
-`main.py` بيفتح النافذة المدمجة (Tkinter) تلقائيًا. محتاجة: `sudo dnf install python3-tkinter python3-pillow python3-pillow-tk`.
+اسحبه بزرار الماوس الشمال، وكليك يمين بيقفله.
 
-## التحكم
-متغير `SOUNDOS_UI`: `auto` (الافتراضي) / `coucou` / `window` / `both`.
+## المطلوب على Fedora
+`sudo dnf install python3-tkinter python3-pillow python3-pillow-tk`
+
+(على Ubuntu: `sudo apt install python3-tk python3-pil python3-pil.imagetk`). لازم تشغّله من Terminal على سطح المكتب، مش SSH.
+
+## تغيير الشكل: `SOUNDOS_UI`
+- `pill` (الافتراضي): الشريط العائم.
+- `window`: النافذة الكبيرة اللي فيها الروبوت.
+- `coucou`: تطبيق Coucou الخارجي (https://github.com/Louis-CFM/coucou) لو إنت منصّبه. إحنا بنبعتله أحداث بس، ومفيش حاجة من تصميمه أو شخصيته جوه الريبو (ترخيص الأصول عندهم بيمنع نسخها). ممكن تحدد مكانه بـ `COUCOU_BIN=/path/to/coucou`.

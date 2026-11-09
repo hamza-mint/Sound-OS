@@ -1,8 +1,14 @@
-"""Sound OS - windowed voice UI (Tkinter + Pillow, anti-aliased). Never raises (CONTRACT Rule 7).
+"""Sound OS - voice UI entry point (on_wake / on_partial / on_heard / on_done). Never raises (CONTRACT Rule 7).
 
-Pillow is needed for the smooth graphics:  pip install pillow
-(Xubuntu/Ubuntu:  sudo apt install python3-pil python3-pil.imagetk)
-Without Pillow a plain text window is shown instead.
+Modes, picked with the SOUNDOS_UI environment variable:
+  pill    (default) our own floating bar at the bottom of the screen -> ui_tts/pill.py
+  window  the bigger window with the robot (Tkinter + Pillow)
+  coucou  the external Coucou app, if you installed it (we only send it events, nothing of it is copied)
+
+Pillow is needed for the smooth graphics:
+  Fedora:  sudo dnf install python3-tkinter python3-pillow python3-pillow-tk
+  Ubuntu:  sudo apt install python3-tk python3-pil python3-pil.imagetk
+Without Pillow a plain text bar / window is shown instead.
 """
 
 import json
@@ -15,6 +21,8 @@ import socket
 import subprocess
 import threading
 import time
+
+from . import pill as _pill      # our own floating bar (default UI)
 
 try:
     from PIL import Image, ImageDraw
@@ -237,9 +245,10 @@ _hinted = False
 
 
 def _ui_mode():
-    """SOUNDOS_UI: auto (default: Coucou if it runs, else the built-in window), coucou, window, both."""
-    m = os.environ.get("SOUNDOS_UI", "auto").strip().lower()
-    return m if m in ("auto", "coucou", "window", "both") else "auto"
+    """SOUNDOS_UI: pill (default: our floating bar at the bottom), window (the big robot window),
+    coucou (the external Coucou app, if you installed it)."""
+    m = os.environ.get("SOUNDOS_UI", "pill").strip().lower()
+    return m if m in ("pill", "window", "coucou") else "pill"
 
 
 def _sock_path():
@@ -299,8 +308,7 @@ def _launch_coucou(wait=10.0):
 
 def _try_coucou(name, *args):
     """Map our on_* calls to Coucou events. True if Coucou got it."""
-    mode = _ui_mode()
-    if mode == "window":
+    if _ui_mode() != "coucou":
         return False
     if name in ("on_wake",):
         return _coucou_send("UserPromptSubmit", prompt="Listening...")
@@ -318,9 +326,8 @@ def _hint_once():
     if _hinted:
         return
     _hinted = True
-    _warn("Coucou is not running, so the built-in window is used.\n"
-          "  For the real Coucou island + Mochi: install it from https://github.com/Louis-CFM/coucou/releases\n"
-          "  (Fedora: sudo dnf install ./Coucou-Linux-*.rpm), start it, then run main.py again.")
+    _warn("SOUNDOS_UI=coucou but Coucou is not running or not installed, so our own bottom bar is used.\n"
+          "  Coucou: https://github.com/Louis-CFM/coucou/releases  (Fedora: sudo dnf install ./Coucou-Linux-*.rpm)")
 
 
 # ---------- the drawing + animation logic (no Tk in here) ----------
@@ -902,24 +909,28 @@ def _dispatch(name, cmd, arg=None):
     """Coucou if it runs; our window if not (or if SOUNDOS_UI=window / both)."""
     mode = _ui_mode()
     args = () if arg is None else (arg,)
-    sent = _try_coucou(name, *args)
-    if mode == "both" or (mode in ("auto", "window") and not sent):
+    if mode == "coucou" and _try_coucou(name, *args):
+        return
+    if mode == "window":
         _send(cmd, arg)
+    else:
+        _pill.send(cmd, arg)
 
 
 # ---------- Public API ----------
 def start() -> None:
-    """Open the UI now: Coucou's island if it runs, else our window (logo spin plays)."""
+    """Open the UI now: our floating bar (default), the robot window, or the Coucou app."""
     try:
         mode = _ui_mode()
-        if mode != "window":
-            _launch_coucou()                          # installed but closed? open it now
-        sent = _coucou_send("SessionStart") if mode != "window" else False
-        if mode in ("window", "both") or (mode == "auto" and not sent):
-            if mode == "auto":
-                _hint_once()
-            if not _closed:
-                _ensure_thread()
+        if mode == "coucou":
+            if _launch_coucou() and _coucou_send("SessionStart"):
+                return
+            _hint_once()
+            mode = "pill"
+        if mode == "pill":
+            _pill.start()
+        elif not _closed:
+            _ensure_thread()
     except Exception:
         pass
 
@@ -927,7 +938,8 @@ def start() -> None:
 def set_level(level) -> None:
     """Optional: feed the real mic loudness (0.0 - 1.0) to drive the waves."""
     try:
-        _send("level", float(level))
+        _pill.set_level(level)
+        _send("level", float(level)) if _ui_mode() == "window" else None
     except Exception:
         pass
 
@@ -953,7 +965,7 @@ def linger(seconds=RESULT_SECONDS + 0.8) -> None:
     """Keep the process alive a moment so the last result is visible (one-shot runs)."""
     try:
         window = _thread is not None and _thread.is_alive() and not _closed
-        if window or _coucou_started:
+        if window or _pill.alive() or _coucou_started:
             time.sleep(seconds)
     except Exception:
         pass
