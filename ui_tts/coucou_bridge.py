@@ -5,9 +5,12 @@ Pillow is needed for the smooth graphics:  pip install pillow
 Without Pillow a plain text window is shown instead.
 """
 
+import json
 import math
+import os
 import queue
 import random
+import socket
 import threading
 import time
 
@@ -63,8 +66,6 @@ _q = queue.Queue()
 _lock = threading.Lock()
 _thread = None
 _closed = False
-_coucou = None
-_coucou_checked = False
 
 
 # ---------- small helpers ----------
@@ -223,24 +224,80 @@ def _wrap(text, font, max_w, rtl):
 
 
 # ---------- Coucou island (optional) ----------
-def _try_coucou(name, *args):
-    """Call coucou.<name>(*args) if a 'coucou' module with it exists. True if handled."""
-    global _coucou, _coucou_checked
+# ---------- the real Coucou app (github.com/Louis-CFM/coucou) ----------
+# Coucou (the island with Mochi) listens on a Unix socket and shows a "pill" for any agent that
+# sends it hook events (docs/AGENTS.md in that repo). We send events as agent "sound-os";
+# the design and the animation are drawn by Coucou itself - nothing of its artwork is copied here.
+_AGENT = "sound-os"
+_SESSION = "sound-os-voice"
+_coucou_started = False
+_hinted = False
+
+
+def _ui_mode():
+    """SOUNDOS_UI: auto (default: Coucou if it runs, else the built-in window), coucou, window, both."""
+    m = os.environ.get("SOUNDOS_UI", "auto").strip().lower()
+    return m if m in ("auto", "coucou", "window", "both") else "auto"
+
+
+def _sock_path():
+    d = os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()
+    return os.path.join(d, "coucou.sock")
+
+
+def _coucou_send(event, **fields):
+    """Send one event line to Coucou. True if delivered. Never raises, never blocks long."""
+    global _coucou_started
     try:
-        if not _coucou_checked:
-            _coucou_checked = True
-            try:
-                import coucou  # ASSUMPTION: module name and function names
-                _coucou = coucou
-            except Exception:
-                _coucou = None
-        fn = getattr(_coucou, name, None) if _coucou else None
-        if callable(fn):
-            fn(*args)
-            return True
+        if not hasattr(socket, "AF_UNIX"):
+            return False                              # Windows: the built-in window is used
+        path = _sock_path()
+        if not os.path.exists(path):
+            return False
+        if not _coucou_started and event != "SessionStart":
+            _coucou_started = True
+            _coucou_send("SessionStart")
+        if event == "SessionStart":
+            _coucou_started = True
+        payload = {"hook_event_name": event, "session_id": _SESSION,
+                   "coucou_agent": _AGENT, "cwd": os.getcwd()}
+        payload.update(fields)
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(0.3)
+        try:
+            s.connect(path)
+            s.sendall((json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8"))
+        finally:
+            s.close()
+        return True
     except Exception:
-        pass
+        return False
+
+
+def _try_coucou(name, *args):
+    """Map our on_* calls to Coucou events. True if Coucou got it."""
+    mode = _ui_mode()
+    if mode == "window":
+        return False
+    if name in ("on_wake",):
+        return _coucou_send("UserPromptSubmit", prompt="Listening...")
+    if name in ("on_partial", "on_heard"):
+        return _coucou_send("UserPromptSubmit", prompt=str(args[0]))
+    if name == "on_done":
+        if args and args[0]:
+            return _coucou_send("Stop", message="Done")
+        return _coucou_send("StopFailure", message="Failed")
     return False
+
+
+def _hint_once():
+    global _hinted
+    if _hinted:
+        return
+    _hinted = True
+    _warn("Coucou is not running, so the built-in window is used.\n"
+          "  For the real Coucou island + Mochi: install it from https://github.com/Louis-CFM/coucou/releases\n"
+          "  (Fedora: sudo dnf install ./Coucou-Linux-*.rpm), start it, then run main.py again.")
 
 
 # ---------- the drawing + animation logic (no Tk in here) ----------
@@ -817,12 +874,26 @@ def _send(cmd, arg=None):
         pass
 
 
+def _dispatch(name, cmd, arg=None):
+    """Coucou if it runs; our window if not (or if SOUNDOS_UI=window / both)."""
+    mode = _ui_mode()
+    args = () if arg is None else (arg,)
+    sent = _try_coucou(name, *args)
+    if mode == "both" or (mode in ("auto", "window") and not sent):
+        _send(cmd, arg)
+
+
 # ---------- Public API ----------
 def start() -> None:
-    """Open the window now (logo spin plays). Optional: on_wake() also opens it."""
+    """Open the UI now: Coucou's island if it runs, else our window (logo spin plays)."""
     try:
-        if not _closed:
-            _ensure_thread()
+        mode = _ui_mode()
+        sent = _coucou_send("SessionStart") if mode != "window" else False
+        if mode in ("window", "both") or (mode == "auto" and not sent):
+            if mode == "auto":
+                _hint_once()
+            if not _closed:
+                _ensure_thread()
     except Exception:
         pass
 
@@ -837,8 +908,7 @@ def set_level(level) -> None:
 
 def on_wake() -> None:
     try:
-        if not _try_coucou("on_wake"):
-            _send("wake")
+        _dispatch("on_wake", "wake")
     except Exception:
         pass
 
@@ -848,8 +918,7 @@ def on_partial(text) -> None:
     try:
         text = str(text)
         text = text if len(text) <= 80 else "..." + text[-77:]
-        if not _try_coucou("on_partial", text):
-            _send("partial", text)
+        _dispatch("on_partial", "partial", text)
     except Exception:
         pass
 
@@ -857,7 +926,8 @@ def on_partial(text) -> None:
 def linger(seconds=RESULT_SECONDS + 0.8) -> None:
     """Keep the process alive a moment so the last result is visible (one-shot runs)."""
     try:
-        if _thread is not None and _thread.is_alive() and not _closed:
+        window = _thread is not None and _thread.is_alive() and not _closed
+        if window or _coucou_started:
             time.sleep(seconds)
     except Exception:
         pass
@@ -867,8 +937,7 @@ def on_heard(text) -> None:
     try:
         text = str(text)
         text = text if len(text) <= 80 else text[:77] + "..."
-        if not _try_coucou("on_heard", text):
-            _send("heard", text)
+        _dispatch("on_heard", "heard", text)
     except Exception:
         pass
 
@@ -876,7 +945,6 @@ def on_heard(text) -> None:
 def on_done(success) -> None:
     try:
         ok = bool(success)
-        if not _try_coucou("on_done", ok):
-            _send("done", ok)
+        _dispatch("on_done", "done", ok)
     except Exception:
         pass
