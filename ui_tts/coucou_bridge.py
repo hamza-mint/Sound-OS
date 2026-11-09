@@ -833,7 +833,8 @@ def _run():
     except Exception as e:
         _closed = True      # no display / no tkinter: say why once, then stop retrying
         _warn("cannot open the window (%s: %s).\n"
-              "  Fix 1 (missing Tk):  sudo apt install python3-tk python3-pil python3-pil.imagetk\n"
+              "  Fix 1 (missing Tk):  Fedora: sudo dnf install python3-tkinter python3-pillow python3-pillow-tk\n"
+              "                       Ubuntu: sudo apt install python3-tk python3-pil python3-pil.imagetk\n"
               "  Fix 2 (no screen):   run from the desktop Terminal, not ssh;  echo $DISPLAY  must not be empty"
               % (type(e).__name__, e))
         return
@@ -849,7 +850,7 @@ def _run():
             _App(root, tk, tkfont, ImageTk, S)
         else:
             _warn("Pillow is missing, showing the plain window (no animation).\n"
-                  "  Fix:  sudo apt install python3-pil python3-pil.imagetk   (or: pip install pillow)")
+                  "  Fix:  Fedora: sudo dnf install python3-pillow python3-pillow-tk   |   Ubuntu: sudo apt install python3-pil python3-pil.imagetk")
             _Plain(root, tk)
         root.mainloop()
     except Exception as e:
