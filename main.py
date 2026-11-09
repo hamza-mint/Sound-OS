@@ -3,7 +3,12 @@ Run with no microphone:  python main.py --text "افتح فايرفوكس"
 Run the real loop:       python main.py
 """
 import argparse
+import sys
 import time
+
+from ui_tts import coucou_bridge as ui     # animated window
+if "--no-ui" not in sys.argv:
+    ui.start()                              # open the window FIRST (before the heavy STT imports)
 
 from audio import wait_for_wake_word, record_utterance
 from stt import transcribe
@@ -11,7 +16,6 @@ from intent_parser import parse, parse_yes_no
 from safety import check
 from executor import execute
 from ui_tts import speak, notify
-from ui_tts import coucou_bridge as ui     # animated window: opens at start, shows what you say
 
 
 def handle(text, ask_yes_no):
@@ -52,7 +56,6 @@ if __name__ == "__main__":
     args = ap.parse_args()
     if args.no_ui:                                # keep the old behaviour: terminal only
         ui.start = ui.on_wake = ui.on_heard = ui.on_done = ui.linger = lambda *a, **k: None
-    ui.start()                                    # the animation plays as soon as main.py starts
     time.sleep(1.6)                               # let the intro finish before the first command
     if args.text:
         ui.on_heard(args.text)

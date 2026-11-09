@@ -755,6 +755,13 @@ class _Plain:
             pass
 
 
+def _warn(msg):
+    try:
+        print("[ui_tts] " + msg)
+    except Exception:
+        pass
+
+
 def _run():
     global _closed
     try:
@@ -766,8 +773,12 @@ def _run():
         import tkinter as tk
         from tkinter import font as tkfont
         root = tk.Tk()
-    except Exception:
-        _closed = True      # no display / no tkinter: stay silent, stop retrying
+    except Exception as e:
+        _closed = True      # no display / no tkinter: say why once, then stop retrying
+        _warn("cannot open the window (%s: %s).\n"
+              "  Fix 1 (missing Tk):  sudo apt install python3-tk python3-pil python3-pil.imagetk\n"
+              "  Fix 2 (no screen):   run from the desktop Terminal, not ssh;  echo $DISPLAY  must not be empty"
+              % (type(e).__name__, e))
         return
     try:
         ImageTk = None
@@ -780,14 +791,12 @@ def _run():
             S = max(1.0, min(3.0, root.winfo_fpixels("1i") / 96.0))
             _App(root, tk, tkfont, ImageTk, S)
         else:
-            try:
-                print("[ui_tts] Install Pillow for the smooth animated UI: pip install pillow")
-            except Exception:
-                pass
+            _warn("Pillow is missing, showing the plain window (no animation).\n"
+                  "  Fix:  sudo apt install python3-pil python3-pil.imagetk   (or: pip install pillow)")
             _Plain(root, tk)
         root.mainloop()
-    except Exception:
-        pass
+    except Exception as e:
+        _warn("the window crashed: %r" % (e,))
 
 
 def _ensure_thread():
