@@ -10,7 +10,9 @@ import math
 import os
 import queue
 import random
+import shutil
 import socket
+import subprocess
 import threading
 import time
 
@@ -272,6 +274,27 @@ def _coucou_send(event, **fields):
         return True
     except Exception:
         return False
+
+
+def _launch_coucou(wait=10.0):
+    """If Coucou is installed but not running, start it (like clicking its icon) and wait for its socket."""
+    try:
+        if os.path.exists(_sock_path()):
+            return True
+        exe = os.environ.get("COUCOU_BIN") or shutil.which("coucou")
+        if not exe:
+            return False
+        subprocess.Popen([exe], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         stdin=subprocess.DEVNULL, start_new_session=True)
+        end = time.time() + wait
+        while time.time() < end:
+            if os.path.exists(_sock_path()):
+                time.sleep(0.5)                       # let it start listening
+                return True
+            time.sleep(0.25)
+    except Exception:
+        pass
+    return False
 
 
 def _try_coucou(name, *args):
@@ -889,6 +912,8 @@ def start() -> None:
     """Open the UI now: Coucou's island if it runs, else our window (logo spin plays)."""
     try:
         mode = _ui_mode()
+        if mode != "window":
+            _launch_coucou()                          # installed but closed? open it now
         sent = _coucou_send("SessionStart") if mode != "window" else False
         if mode in ("window", "both") or (mode == "auto" and not sent):
             if mode == "auto":
