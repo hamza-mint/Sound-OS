@@ -235,7 +235,7 @@ def _wrap(text, font, max_w, rtl):
 
 # ---------- Coucou island (optional) ----------
 # ---------- the real Coucou app (github.com/Louis-CFM/coucou) ----------
-# Coucou (the island with Mochi) listens on a Unix socket and shows a "pill" for any agent that
+# Coucou (a separate app, not part of this repo) listens on a Unix socket and shows a "pill" for any agent that
 # sends it hook events (docs/AGENTS.md in that repo). We send events as agent "sound-os";
 # the design and the animation are drawn by Coucou itself - nothing of its artwork is copied here.
 _AGENT = "sound-os"
