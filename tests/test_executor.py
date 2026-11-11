@@ -198,3 +198,33 @@ def test_create_file_default_name():
     res = execute({"intent": "create_file", "params": {}, "lang": "en"})
     assert res["success"] is True
     assert "new_file.txt" in res["message"]
+
+
+# ---------------------------------------------------------------------------
+# 11. v2 Enhancements (Offline handling, Actions resilience)
+# ---------------------------------------------------------------------------
+def test_internet_check_speed():
+    from executor.actions import check_internet_connection
+    t0 = time.monotonic()
+    online = check_internet_connection(timeout_sec=0.1)
+    elapsed = time.monotonic() - t0
+    assert isinstance(online, bool)
+    assert elapsed < 0.25, f"Internet check too slow: {elapsed:.3f}s"
+
+
+def test_web_search_offline_graceful():
+    os.environ["SOUNDOS_DRY_RUN"] = "0"
+    from unittest.mock import patch
+    with patch("executor.actions.check_internet_connection", return_value=False):
+        res = execute({"intent": "web_search", "params": {"query": "test"}, "lang": "ar"})
+        assert res["success"] is False
+        assert "إنترنت" in res["message"]
+
+
+def test_play_media_offline_graceful():
+    os.environ["SOUNDOS_DRY_RUN"] = "0"
+    from unittest.mock import patch
+    with patch("executor.actions.check_internet_connection", return_value=False):
+        res = execute({"intent": "play_media", "params": {"query": "amr diab"}, "lang": "en"})
+        assert res["success"] is False
+        assert "internet" in res["message"].lower()

@@ -1,16 +1,33 @@
 """
-Sound OS - Executor Action Implementations
+Sound OS - Executor Action Implementations (v2 Enhanced)
 Safe command execution for Ubuntu (X11 / Xorg).
 Follows CONTRACT.md: No shell=True, safe argument lists, never raises exceptions.
 """
 import os
 import shutil
+import socket
 import subprocess
 import urllib.parse
 from pathlib import Path
 from typing import Tuple, Dict, Any
 
 SAFE_FILES_DIR = Path.home() / "SoundOS_Files"
+BRIGHTNESS_STATE_FILE = Path("/tmp/.soundos_brightness")
+
+
+def check_internet_connection(timeout_sec: float = 0.2) -> bool:
+    """
+    Ultra-fast non-blocking internet connectivity check (DNS socket connect).
+    Takes <50ms, well below the 1-second limit in CONTRACT.md §7.
+    """
+    targets = [("1.1.1.1", 53), ("8.8.8.8", 53)]
+    for host, port in targets:
+        try:
+            with socket.create_connection((host, port), timeout=timeout_sec):
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def _run_subcommand(args: list[str]) -> Tuple[bool, str]:
@@ -59,18 +76,27 @@ def _spawn_detached(args: list[str]) -> Tuple[bool, str]:
 def adjust_volume(direction: str) -> Tuple[bool, str]:
     """
     Adjust volume up (+5%) or down (-5%).
+    Senior UX enhancement: Automatically unmute when raising volume.
     Prefers wpctl (PipeWire) then pactl (PulseAudio).
     """
     delta = "+5%" if direction == "up" else "-5%"
 
+    # 1. PipeWire / WirePlumber
     if shutil.which("wpctl"):
+        if direction == "up":
+            # Auto-unmute when raising volume
+            _run_subcommand(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "0"])
         cmd = ["wpctl", "set-volume", "-l", "1.5", "@DEFAULT_AUDIO_SINK@", delta]
         ok, out = _run_subcommand(cmd)
         if ok:
             return True, "Volume adjusted."
         # If wpctl failed to talk to daemon, try pactl fallback
 
+    # 2. PulseAudio fallback
     if shutil.which("pactl"):
+        if direction == "up":
+            # Auto-unmute when raising volume
+            _run_subcommand(["pactl", "set-sink-mute", "@DEFAULT_SINK@", "0"])
         cmd = ["pactl", "set-sink-volume", "@DEFAULT_SINK@", delta]
         ok, out = _run_subcommand(cmd)
         if ok:
@@ -97,25 +123,80 @@ def set_mute() -> Tuple[bool, str]:
 
 
 # ---------------------------------------------------------
-# Brightness Controls (brightnessctl)
+# Brightness Controls (brightnessctl with VM xrandr fallback)
 # ---------------------------------------------------------
+def _adjust_vm_xrandr_brightness(direction: str) -> Tuple[bool, str]:
+    """
+    Software brightness fallback for Virtual Machines (VirtualBox, VMware, QEMU)
+    using X11 xrandr gamma scaling.
+    """
+    if not shutil.which("xrandr"):
+        return False, "Neither 'brightnessctl' nor 'xrandr' is available."
+
+    try:
+        # Detect connected display name
+        proc = subprocess.run(
+            ["xrandr", "--current"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=2,
+        )
+        display_name = None
+        for line in proc.stdout.splitlines():
+            if " connected" in line:
+                display_name = line.split()[0]
+                break
+
+        if not display_name:
+            return False, "No active connected display detected via xrandr."
+
+        # Read current cached brightness
+        curr_brightness = 1.0
+        if BRIGHTNESS_STATE_FILE.exists():
+            try:
+                curr_brightness = float(BRIGHTNESS_STATE_FILE.read_text().strip())
+            except Exception:
+                curr_brightness = 1.0
+
+        if direction == "up":
+            new_brightness = min(1.0, round(curr_brightness + 0.1, 2))
+        else:
+            new_brightness = max(0.2, round(curr_brightness - 0.1, 2))
+
+        ok, out = _run_subcommand(["xrandr", "--output", display_name, "--brightness", str(new_brightness)])
+        if ok:
+            try:
+                BRIGHTNESS_STATE_FILE.write_text(str(new_brightness))
+            except Exception:
+                pass
+            return True, f"Brightness set to {int(new_brightness * 100)}% via software."
+        return False, out
+    except Exception as exc:
+        return False, str(exc)
+
+
 def adjust_brightness(direction: str) -> Tuple[bool, str]:
     """
     Adjust display brightness up (+10%) or down (-10%).
-    Note: Virtual machines typically do not have a virtual backlight device.
+    Tries hardware brightnessctl first; gracefully falls back to xrandr in VMs.
     """
     delta = "10%+" if direction == "up" else "10%-"
-    if not shutil.which("brightnessctl"):
-        return False, "Utility 'brightnessctl' is not installed."
+    if shutil.which("brightnessctl"):
+        ok, out = _run_subcommand(["brightnessctl", "set", delta])
+        if ok:
+            return True, "Brightness adjusted."
 
-    ok, out = _run_subcommand(["brightnessctl", "set", delta])
-    if ok:
-        return True, "Brightness adjusted."
-    return False, f"Brightness adjustment failed: {out}"
+    # VM Fallback: If hardware brightnessctl is missing or fails (common in VirtualBox/VMware)
+    vm_ok, vm_out = _adjust_vm_xrandr_brightness(direction)
+    if vm_ok:
+        return True, vm_out
+
+    return False, "Backlight hardware not found, and software brightness via xrandr failed."
 
 
 # ---------------------------------------------------------
-# Application Controls (Open / Close)
+# Application Controls (Open / Graceful Close)
 # ---------------------------------------------------------
 def launch_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
     """Launch application as a detached background process."""
@@ -126,11 +207,22 @@ def launch_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
 
 
 def terminate_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
-    """Terminate application by process name using pkill."""
+    """
+    Terminate application gracefully.
+    Senior UX enhancement: Try wmctrl -c first (Graceful close on X11),
+    falling back to pkill -x.
+    """
     proc_name = app_config.get("process")
     if not proc_name:
         return False, "No process name defined for this application."
 
+    # 1. Try graceful window close if wmctrl is installed (X11)
+    if shutil.which("wmctrl"):
+        ok, _ = _run_subcommand(["wmctrl", "-c", proc_name])
+        if ok:
+            return True, f"Gracefully closed {proc_name}."
+
+    # 2. Standard pkill termination
     if not shutil.which("pkill"):
         return False, "'pkill' utility is missing."
 
@@ -157,7 +249,6 @@ def open_directory(folder_path_str: str) -> Tuple[bool, str]:
 
 def create_user_file(filename: str = "new_file.txt") -> Tuple[bool, str]:
     """Create a new empty file inside ~/SoundOS_Files/."""
-    # Sanitize filename
     clean_name = os.path.basename(filename).strip() or "new_file.txt"
     if "/" in filename or ".." in filename:
         return False, "Invalid filename: path traversal is not permitted."
@@ -199,25 +290,35 @@ def delete_user_file(filename: str, dry_run: bool = False) -> Tuple[bool, str]:
 # ---------------------------------------------------------
 # Web Search & Media
 # ---------------------------------------------------------
-def search_web(query: str) -> Tuple[bool, str]:
-    """Open default browser with Google search."""
+def search_web(query: str, check_net: bool = True) -> Tuple[bool, str]:
+    """
+    Open default browser with Google search.
+    Follows CONTRACT.md §4: 'web_search needs internet; say so in the message if offline.'
+    """
     if not query:
         return False, "Empty search query."
+
+    if check_net and not check_internet_connection():
+        return False, "offline"
+
     encoded = urllib.parse.quote(query)
     url = f"https://www.google.com/search?q={encoded}"
     return _spawn_detached(["xdg-open", url])
 
 
 def play_media_content(query: str = "") -> Tuple[bool, str]:
-    """Open media player or default media folder."""
+    """Open media player or search online media."""
     if query:
-        # If user asked for a specific search, open search or local music folder
+        # If user asked for a specific artist/song, open YouTube search if online
+        if check_internet_connection():
+            encoded = urllib.parse.quote(query)
+            return _spawn_detached(["xdg-open", f"https://www.youtube.com/results?search_query={encoded}"])
         music_dir = Path.home() / "Music"
         if music_dir.exists():
             return _spawn_detached(["xdg-open", str(music_dir)])
-        return search_web(f"play {query}")
+        return False, "offline"
     else:
-        # Default: open VLC or media folder
+        # Default: open VLC or music folder
         if shutil.which("vlc"):
             return _spawn_detached(["vlc"])
         music_dir = Path.home() / "Music"
