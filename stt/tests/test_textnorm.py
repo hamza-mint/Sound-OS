@@ -1,4 +1,7 @@
-from textnorm import normalize
+try:
+    from stt.textnorm import normalize
+except ImportError:
+    from textnorm import normalize
 
 
 def test_alef_and_punctuation():

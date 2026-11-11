@@ -1,0 +1,36 @@
+# Sound OS — systemd user service (Owner: Yassin)
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp scripts/soundos.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now soundos.service
+# Logs:
+#   journalctl --user -u soundos -f
+
+[Unit]
+Description=Sound OS — Voice Control for Linux
+Documentation=https://github.com/hamza-mint/Sound-OS
+After=graphical-session.target sound.target pipewire.service pulseaudio.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+# DISPLAY is required for X11 apps (xdg-open, etc.)
+Environment=PYTHONUNBUFFERED=1
+Environment=DISPLAY=:0
+
+# *** IMPORTANT: Change these paths to match YOUR clone location ***
+WorkingDirectory=%h/Sound-OS
+ExecStart=%h/Sound-OS/.venv/bin/python %h/Sound-OS/main.py
+
+# Auto-restart on crash, 3-second cool-down
+Restart=on-failure
+RestartSec=3s
+
+# Logging to journalctl
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sound-os
+
+[Install]
+WantedBy=default.target

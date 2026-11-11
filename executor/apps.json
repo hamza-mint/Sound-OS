@@ -1,0 +1,61 @@
+{
+  "apps": {
+    "firefox": {
+      "cmd": ["firefox"],
+      "process": "firefox",
+      "aliases": ["firefox", "browser", "المتصفح", "فايرفوكس", "متصفح"]
+    },
+    "chrome": {
+      "cmd": ["google-chrome"],
+      "process": "chrome",
+      "aliases": ["chrome", "google chrome", "كروم", "جوجل كروم"]
+    },
+    "terminal": {
+      "cmd": ["x-terminal-emulator"],
+      "process": "x-terminal-emulator",
+      "aliases": ["terminal", "bash", "الطرفية", "شاشة الأوامر", "الترمينال"]
+    },
+    "files": {
+      "cmd": ["xdg-open", "."],
+      "process": "thunar",
+      "aliases": ["files", "file manager", "الملفات", "مدير الملفات"]
+    },
+    "calculator": {
+      "cmd": ["gnome-calculator"],
+      "process": "gnome-calculator",
+      "aliases": ["calculator", "calc", "الحاسبة", "الآلة الحاسبة"]
+    },
+    "editor": {
+      "cmd": ["mousepad"],
+      "process": "mousepad",
+      "aliases": ["editor", "text editor", "المحرر", "محرر النصوص", "المفكرة"]
+    },
+    "vlc": {
+      "cmd": ["vlc"],
+      "process": "vlc",
+      "aliases": ["vlc", "media player", "مشغل الوسائط", "مشغل الميديا", "في ال سي"]
+    },
+    "settings": {
+      "cmd": ["xfce4-settings-manager"],
+      "process": "xfce4-settings-manager",
+      "aliases": ["settings", "control panel", "الإعدادات", "الضبط"]
+    }
+  },
+  "folders": {
+    "home": "~",
+    "downloads": "~/Downloads",
+    "documents": "~/Documents",
+    "desktop": "~/Desktop",
+    "pictures": "~/Pictures",
+    "music": "~/Music",
+    "videos": "~/Videos",
+    "الرئيسية": "~",
+    "التنزيلات": "~/Downloads",
+    "التحميلات": "~/Downloads",
+    "المستندات": "~/Documents",
+    "سطح المكتب": "~/Desktop",
+    "الصور": "~/Pictures",
+    "الموسيقى": "~/Music",
+    "الفيديوهات": "~/Videos"
+  }
+}

@@ -1,0 +1,191 @@
+id,group,lang,phrase,intent,params
+V01,volume,ar,علي الصوت,volume_up,
+V02,volume,ar,زود الصوت شويه,volume_up,
+V03,volume,ar,ارفع الصوت,volume_up,
+V04,volume,ar,الصوت واطي اوي,volume_up,
+V05,volume,ar,علّي الصوت شوية,volume_up,
+V06,volume,en,turn up the volume,volume_up,
+V07,volume,en,volume up,volume_up,
+V08,volume,en,make it louder,volume_up,
+V09,volume,en,increase the volume please,volume_up,
+V10,volume,en,i can't hear anything,volume_up,
+V11,volume,ar,وطي الصوت,volume_down,
+V12,volume,ar,وطّي الصوت شوية,volume_down,
+V13,volume,ar,قلل الصوت,volume_down,
+V14,volume,ar,نزل الصوت,volume_down,
+V15,volume,ar,الصوت عالي اوي,volume_down,
+V16,volume,en,turn down the volume,volume_down,
+V17,volume,en,volume down,volume_down,
+V18,volume,en,lower the volume,volume_down,
+V19,volume,en,make it quieter,volume_down,
+V20,volume,en,it's too loud,volume_down,
+V21,volume,ar,اكتم الصوت,mute,
+V22,volume,ar,اقفل الصوت,mute,
+V23,volume,ar,كتم,mute,
+V24,volume,ar,اسكت,mute,
+V25,volume,ar,من غير صوت لو سمحت,mute,
+V26,volume,en,mute,mute,
+V27,volume,en,mute the sound,mute,
+V28,volume,en,mute the volume,mute,
+V29,volume,en,silence,mute,
+V30,volume,en,please mute the audio,mute,
+B01,brightness,ar,نور الشاشه,brightness_up,
+B02,brightness,ar,زود النور,brightness_up,
+B03,brightness,ar,علي السطوع,brightness_up,
+B04,brightness,ar,زود الاضاءه,brightness_up,
+B05,brightness,ar,ارفع سطوع الشاشه,brightness_up,
+B06,brightness,ar,الشاشه ضلمه اوي,brightness_up,
+B07,brightness,ar,نوّر الشاشة شوية,brightness_up,
+B08,brightness,ar,زوّد الإضاءة,brightness_up,
+B09,brightness,en,increase the brightness,brightness_up,
+B10,brightness,en,brightness up,brightness_up,
+B11,brightness,en,make the screen brighter,brightness_up,
+B12,brightness,en,turn up the brightness,brightness_up,
+B13,brightness,en,raise screen brightness,brightness_up,
+B14,brightness,en,the screen is too dark,brightness_up,
+B15,brightness,en,brighter please,brightness_up,
+B16,brightness,ar,وطي النور,brightness_down,
+B17,brightness,ar,قلل السطوع,brightness_down,
+B18,brightness,ar,خفض الاضاءه,brightness_down,
+B19,brightness,ar,وطي الشاشه شوية,brightness_down,
+B20,brightness,ar,نزل سطوع الشاشه,brightness_down,
+B21,brightness,ar,النور عالي اوي,brightness_down,
+B22,brightness,ar,الشاشه منوره اوي,brightness_down,
+B23,brightness,ar,عتم الشاشه,brightness_down,
+B24,brightness,ar,قلل النور شويه,brightness_down,
+B25,brightness,en,decrease the brightness,brightness_down,
+B26,brightness,en,brightness down,brightness_down,
+B27,brightness,en,dim the screen,brightness_down,
+B28,brightness,en,lower screen brightness,brightness_down,
+B29,brightness,en,turn down the brightness,brightness_down,
+B30,brightness,en,it's too bright,brightness_down,
+A01,apps,ar,افتح فايرفوكس,open_app,app=firefox
+A02,apps,ar,شغللي كروم,open_app,app=chrome
+A03,apps,ar,افتحلي الترمينال,open_app,app=terminal
+A04,apps,ar,عايز افتح الحاسبه,open_app,app=calculator
+A05,apps,ar,وريني الملفات,open_app,app=files
+A06,apps,ar,شغل المتصفح,open_app,app=firefox
+A07,apps,ar,افتح الاعدادات,open_app,app=settings
+A08,apps,ar,ممكن تفتحلي محرر النصوص,open_app,app=editor
+A09,apps,en,open firefox,open_app,app=firefox
+A10,apps,en,launch chrome,open_app,app=chrome
+A11,apps,en,start the terminal,open_app,app=terminal
+A12,apps,en,open the calculator,open_app,app=calculator
+A13,apps,en,can you open the file manager,open_app,app=files
+A14,apps,en,open vlc,open_app,app=vlc
+A15,apps,en,run the text editor,open_app,app=editor
+A16,apps,ar,اقفل فايرفوكس,close_app,app=firefox
+A17,apps,ar,سكر الكروم,close_app,app=chrome
+A18,apps,ar,اقفللي الترمينال,close_app,app=terminal
+A19,apps,ar,اقفل الحاسبه,close_app,app=calculator
+A20,apps,ar,اغلق المتصفح,close_app,app=firefox
+A21,apps,ar,سكرلي الملفات,close_app,app=files
+A22,apps,ar,قفل الاعدادات,close_app,app=settings
+A23,apps,ar,ممكن تقفل الكروم,close_app,app=chrome
+A24,apps,en,close firefox,close_app,app=firefox
+A25,apps,en,quit chrome,close_app,app=chrome
+A26,apps,en,close the terminal,close_app,app=terminal
+A27,apps,en,exit the calculator,close_app,app=calculator
+A28,apps,en,kill firefox,close_app,app=firefox
+A29,apps,en,close the file manager please,close_app,app=files
+A30,apps,en,stop vlc,close_app,app=vlc
+F01,files,ar,اعمل ملف جديد,create_file,
+F02,files,ar,اعملي ملف اسمه notes.txt,create_file,name=notes.txt
+F03,files,ar,انشئ ملف باسم تقرير,create_file,name=تقرير
+F04,files,ar,كريت فايل اسمه test,create_file,name=test
+F05,files,ar,اعملي ملف نصي,create_file,
+F06,files,ar,عايز اعمل ملف اسمه todo.txt,create_file,name=todo.txt
+F07,files,ar,اعمللي فايل جديد باسم ملاحظات,create_file,name=ملاحظات
+F08,files,ar,انشاء ملف اسمه report نقطه docx,create_file,name=report.docx
+F09,files,en,create a file,create_file,
+F10,files,en,create a file named notes.txt,create_file,name=notes.txt
+F11,files,en,make a new file called todo.txt,create_file,name=todo.txt
+F12,files,en,create a new text file,create_file,
+F13,files,en,new file called ideas.md,create_file,name=ideas.md
+F14,files,en,make a file named report dot docx,create_file,name=report.docx
+F15,files,en,please create file test.py,create_file,name=test.py
+F16,files,ar,افتح التحميلات,open_folder,folder=downloads
+F17,files,ar,افتح مجلد المستندات,open_folder,folder=documents
+F18,files,ar,وريني الصور,open_folder,folder=pictures
+F19,files,ar,افتح سطح المكتب,open_folder,folder=desktop
+F20,files,ar,روح علي الموسيقي,open_folder,folder=music
+F21,files,ar,افتح مجلد الفيديوهات,open_folder,folder=videos
+F22,files,ar,افتح فولدر المشروع,open_folder,folder=مشروع
+F23,files,ar,افتحلي مجلد البيت,open_folder,folder=home
+F24,files,en,open downloads,open_folder,folder=downloads
+F25,files,en,open the documents folder,open_folder,folder=documents
+F26,files,en,show me my pictures,open_folder,folder=pictures
+F27,files,en,go to desktop,open_folder,folder=desktop
+F28,files,en,open the music folder,open_folder,folder=music
+F29,files,en,open folder projects,open_folder,folder=projects
+F30,files,en,take me to videos,open_folder,folder=videos
+W01,web_media,ar,ابحث عن وصفات كشري,web_search,query=وصفات كشري
+W02,web_media,ar,دورلي علي اسعار الذهب,web_search,query=اسعار الذهب
+W03,web_media,ar,ابحثلي عن اقرب صيدليه,web_search,query=اقرب صيدليه
+W04,web_media,ar,سيرش علي طقس القاهرة,web_search,query=طقس القاهرة
+W05,web_media,ar,دور علي جوجل عن جدول المترو,web_search,query=جدول المترو
+W06,web_media,ar,ممكن تدورلي علي مطاعم قريبه,web_search,query=مطاعم قريبه
+W07,web_media,ar,ابحث في الانترنت عن اخبار الكورة,web_search,query=اخبار الكورة
+W08,web_media,ar,دور لي علي سعر الدولار,web_search,query=سعر الدولار
+W09,web_media,en,search for best laptops 2026,web_search,query=best laptops 2026
+W10,web_media,en,google how to learn python,web_search,query=how to learn python
+W11,web_media,en,look up the weather in cairo,web_search,query=weather in cairo
+W12,web_media,en,search the web for pizza near me,web_search,query=pizza near me
+W13,web_media,en,can you search for ubuntu shortcuts,web_search,query=ubuntu shortcuts
+W14,web_media,en,search google for arabic news,web_search,query=arabic news
+W15,web_media,en,look up python regex tutorial,web_search,query=python regex tutorial
+P01,web_media,ar,شغل اغنيه لفيروز,play_media,query=فيروز
+P02,web_media,ar,شغللي موسيقي هاديه,play_media,query=هاديه
+P03,web_media,ar,شغل فيروز,play_media,query=فيروز
+P04,web_media,ar,عايز اسمع ام كلثوم,play_media,query=ام كلثوم
+P05,web_media,ar,شغل فيديو,play_media,
+P06,web_media,ar,سمعني اغاني عمرو دياب,play_media,query=عمرو دياب
+P07,web_media,ar,شغل القران,play_media,
+P08,web_media,ar,ممكن تشغللي شوية موسيقي,play_media,
+P09,web_media,en,play some music,play_media,
+P10,web_media,en,play bohemian rhapsody,play_media,query=bohemian rhapsody
+P11,web_media,en,play the song shape of you,play_media,query=shape of you
+P12,web_media,en,put on some jazz,play_media,query=jazz
+P13,web_media,en,i want to listen to fairuz,play_media,query=fairuz
+P14,web_media,en,play a video,play_media,
+P15,web_media,en,play songs by queen,play_media,query=queen
+S01,dangerous,ar,اقفل الجهاز,shutdown,
+S02,dangerous,ar,اطفي الكمبيوتر,shutdown,
+S03,dangerous,ar,طفي اللابتوب,shutdown,
+S04,dangerous,ar,اغلق الجهاز لو سمحت,shutdown,
+S05,dangerous,ar,شات داون,shutdown,
+S06,dangerous,ar,ممكن تطفيلي الجهاز,shutdown,
+S07,dangerous,ar,عايز اقفل الكمبيوتر,shutdown,
+S08,dangerous,ar,اقفل السيستم,shutdown,
+S09,dangerous,en,shut down,shutdown,
+S10,dangerous,en,shut down the computer,shutdown,
+S11,dangerous,en,power off,shutdown,
+S12,dangerous,en,turn off the computer,shutdown,
+S13,dangerous,en,shutdown now,shutdown,
+S14,dangerous,en,please power off the laptop,shutdown,
+S15,dangerous,en,turn the computer off,shutdown,
+D01,dangerous,ar,امسح ملف test.txt,delete_file,name=test.txt
+D02,dangerous,ar,احذف الملف notes.txt,delete_file,name=notes.txt
+D03,dangerous,ar,شيل ملف تقرير,delete_file,name=تقرير
+D04,dangerous,ar,امسحلي فايل اسمه old.log,delete_file,name=old.log
+D05,dangerous,ar,احذف ملف اسمه صورة نقطه png,delete_file,name=صورة.png
+D06,dangerous,ar,عايز امسح الملف draft.docx,delete_file,name=draft.docx
+D07,dangerous,ar,ازل ملف backup.zip,delete_file,name=backup.zip
+D08,dangerous,ar,مسح فايل temp.txt,delete_file,name=temp.txt
+D09,dangerous,en,delete file notes.txt,delete_file,name=notes.txt
+D10,dangerous,en,delete the file named test.txt,delete_file,name=test.txt
+D11,dangerous,en,remove file old.log,delete_file,name=old.log
+D12,dangerous,en,erase the file draft.docx,delete_file,name=draft.docx
+D13,dangerous,en,delete my file report.pdf,delete_file,name=report.pdf
+D14,dangerous,en,trash the file temp.txt,delete_file,name=temp.txt
+D15,dangerous,en,please delete file backup dot zip,delete_file,name=backup.zip
+U01,unknown,en,what's the weather today,unknown,
+U02,unknown,ar,احكيلي نكته,unknown,
+U03,unknown,en,tell me a joke,unknown,
+U04,unknown,ar,الساعه كام,unknown,
+U05,unknown,en,what time is it,unknown,
+U06,unknown,ar,عامل ايه,unknown,
+U07,unknown,en,hello,unknown,
+U08,unknown,ar,افتح,unknown,
+U09,unknown,en,delete the file,unknown,
+U10,unknown,en,open,unknown,

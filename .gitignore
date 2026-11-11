@@ -1,3 +1,8 @@
+# Secrets — never upload these
+.env
+*.key
+*.pem
+
 # Python
 __pycache__/
 *.py[cod]
@@ -10,18 +15,26 @@ __pycache__/
 venv/
 env/
 
-# Pytest
+# Pytest & tests
 .pytest_cache/
 *.pyc
 
-# OS files
-.DS_Store
-Thumbs.db
-
-# Secrets
-.env
-
-# Large model files
+# Large files & audio
+*.ova
+*.iso
+*.wav
+!stt/*.wav
+!tests/fixtures/*.wav
+!ui_tts/assets/*.wav
+*.mp3
+models/
+vosk-model*/
 *.bin
 *.pt
 *.ckpt
+
+# Editor and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

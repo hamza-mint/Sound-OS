@@ -1,0 +1,13 @@
+# Replace the @names with real GitHub usernames. Owner is auto-requested as reviewer.
+/audio/          @abram
+/stt/            @mahmoud
+/intent_parser/  @kero
+/safety/         @antonius
+/docs/           @antonius
+/executor/       @yassin
+/ui_tts/         @youssef
+/testdata/       @kirollos
+/tests/          @kareem
+/scripts/        @kareem
+/CONTRACT.md     @kero
+/main.py         @kero
