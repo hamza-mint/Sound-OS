@@ -2,7 +2,7 @@
 
     python eval_wer.py tiny                 # uses the language written in references.csv
     python eval_wer.py tiny --auto          # auto-detect language (harder, realistic)
-    python eval_wer.py tiny --no-prompt     # compare with / without initial_prompt
+    python eval_wer.py tiny --prompt        # compare with initial_prompt (off by default)
 
 Change ONE thing per run and record the numbers.
 Silence clips (empty reference) are counted separately as "false triggers".
@@ -19,9 +19,9 @@ from stt import SpeechToText
 from textnorm import normalize
 
 ap = argparse.ArgumentParser()
-ap.add_argument("model", nargs="?", default="tiny")
+ap.add_argument("model", nargs="?", default="base")
 ap.add_argument("--testset", default="testset")
-ap.add_argument("--no-prompt", action="store_true")
+ap.add_argument("--prompt", action="store_true", help="use initial_prompt (off by default)")
 ap.add_argument("--auto", action="store_true",
                 help="auto-detect language instead of using the CSV language")
 args = ap.parse_args()
@@ -43,7 +43,7 @@ for r in rows:
     hyp, lang = stt.transcribe(
         os.path.join(args.testset, "audio", r["file"]),
         language=None if args.auto else r["lang"],
-        use_prompt=not args.no_prompt)
+        use_prompt=args.prompt)
     times.append(time.perf_counter() - t)
     r["hyp"] = hyp
 
@@ -59,7 +59,7 @@ for r in rows:
         groups[key][0].append(ref_n)
         groups[key][1].append(hyp_n or "xxx")      # jiwer rejects empty hypotheses
 
-print(f"model={args.model} auto_lang={args.auto} prompt={not args.no_prompt}")
+print(f"model={args.model} auto_lang={args.auto} prompt={args.prompt}")
 for key, (refs, hyps) in sorted(groups.items()):
     print(f"{key:14s} n={len(refs):3d}  WER={jiwer.wer(refs, hyps):.3f}  "
           f"CER={jiwer.cer(refs, hyps):.3f}")

@@ -5,26 +5,28 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-import stt as stt_module
-from stt import SpeechToText, PROMPTS, SAMPLE_RATE
+from stt import SpeechToText, PROMPTS, SAMPLE_RATE, MAX_NEW_TOKENS
 
 
-def make_stt(model=None):
+def make_stt(model=None, strategy="both"):
     obj = SpeechToText.__new__(SpeechToText)     # skip __init__ (no model download)
     obj.model = model
+    obj.auto_strategy = strategy
+    obj.last_candidates = []
     return obj
 
 
 class StubModel:
-    """Mimics faster-whisper: returns (segments, info). Records the calls."""
+    """Mimics faster-whisper: returns (segments, info). Records the calls.
+    replies: (text, detected_lang, language_probs, avg_logprob)."""
     def __init__(self, replies):
         self.replies = list(replies)
         self.calls = []
 
     def transcribe(self, audio, **kw):
         self.calls.append(kw)
-        text, lang, probs = self.replies.pop(0)
-        segs = iter([SimpleNamespace(text=f" {text} ")]) if text else iter([])
+        text, lang, probs, score = (list(self.replies.pop(0)) + [None, -0.5])[:4]
+        segs = iter([SimpleNamespace(text=f" {text} ", avg_logprob=score)]) if text else iter([])
         return segs, SimpleNamespace(language=lang, all_language_probs=probs)
 
 
@@ -42,8 +44,7 @@ def test_int16_is_scaled():
 
 
 def test_stereo_to_mono():
-    stereo = np.stack([tone(), tone()], axis=1)
-    assert SpeechToText._load(stereo).ndim == 1
+    assert SpeechToText._load(np.stack([tone(), tone()], axis=1)).ndim == 1
 
 
 def test_wrong_sample_rate_file_raises(tmp_path):
@@ -61,12 +62,11 @@ def test_reads_wav_path(tmp_path):
 
 # ---------- gates ----------
 def test_silence_never_calls_model():
-    s = make_stt(model=None)                      # would crash if the model were used
-    assert s.transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32)) == ("", "en")
+    assert make_stt(None).transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32)) == ("", "en")
 
 
 def test_too_short_never_calls_model():
-    s = make_stt(model=None)
+    s = make_stt(None)
     assert s.transcribe(tone(0.1)) == ("", "en")
     assert s.transcribe(tone(0.1), language="ar") == ("", "ar")
 
@@ -78,42 +78,74 @@ def test_repetition_detector():
     assert not SpeechToText._is_repetitive("")
 
 
-# ---------- decoding logic ----------
-def test_forced_language_and_prompt():
-    m = StubModel([("وطي الصوت", "ar", None)])
+# ---------- forced language ----------
+def test_forced_language_no_prompt_by_default():
+    m = StubModel([("وطي الصوت", "ar", None, -0.4)])
     text, lang = make_stt(m).transcribe(tone(), language="ar")
     assert (text, lang) == ("وطي الصوت", "ar")
-    assert m.calls[0]["language"] == "ar"
-    assert m.calls[0]["initial_prompt"] == PROMPTS["ar"]
-    assert m.calls[0]["vad_filter"] is True
+    c = m.calls[0]
+    assert c["language"] == "ar" and c["initial_prompt"] is None
+    assert c["vad_filter"] is True and c["max_new_tokens"] == MAX_NEW_TOKENS
+    assert len(m.calls) == 1
 
 
-def test_prompt_can_be_disabled():
-    m = StubModel([("mute", "en", None)])
-    make_stt(m).transcribe(tone(), language="en", use_prompt=False)
-    assert m.calls[0]["initial_prompt"] is None
+def test_prompt_is_opt_in():
+    m = StubModel([("mute", "en", None, -0.4)])
+    make_stt(m).transcribe(tone(), language="en", use_prompt=True)
+    assert m.calls[0]["initial_prompt"] == PROMPTS["en"]
 
 
-def test_auto_language_restricted_to_ar_en():
-    # the model first guesses Norwegian ("nn"); we must retry with the best of ar/en
-    m = StubModel([("garbage", "nn", [("ar", 0.30), ("en", 0.10), ("nn", 0.48)]),
-                   ("افتح المتصفح", "ar", None)])
-    text, lang = make_stt(m).transcribe(tone())
+def test_forced_language_sets_candidates():
+    s = make_stt(StubModel([("mute", "en", None, -0.3)]))
+    s.transcribe(tone(), language="en")
+    assert s.last_candidates == [{"lang": "en", "text": "mute", "score": pytest.approx(-0.3)}]
+
+
+# ---------- auto: both languages ----------
+def test_auto_both_picks_more_confident():
+    # Arabic audio: the English decode is garbage with a worse score
+    m = StubModel([("وطي سوت", "ar", None, -0.6), ("What the soot?", "en", None, -1.4)])
+    s = make_stt(m)
+    assert s.transcribe(tone()) == ("وطي سوت", "ar")
+    assert [c["language"] for c in m.calls] == ["ar", "en"]
+    assert {c["lang"] for c in s.last_candidates} == {"ar", "en"}
+
+
+def test_auto_both_picks_english_when_more_confident():
+    m = StubModel([("اوبن", "ar", None, -1.5), ("Volume up.", "en", None, -0.3)])
+    assert make_stt(m).transcribe(tone()) == ("Volume up.", "en")
+
+
+def test_auto_both_ignores_empty_candidate():
+    m = StubModel([("", "ar", None, -0.1), ("mute", "en", None, -2.0)])
+    assert make_stt(m).transcribe(tone()) == ("mute", "en")
+
+
+def test_auto_both_all_empty():
+    m = StubModel([("", "ar", None, -0.1), ("", "en", None, -0.1)])
+    assert make_stt(m).transcribe(tone()) == ("", "en")
+
+
+def test_repetitive_candidate_loses():
+    m = StubModel([("افتح افتح افتح", "ar", None, -0.1), ("open", "en", None, -2.0)])
+    assert make_stt(m).transcribe(tone()) == ("open", "en")
+
+
+# ---------- auto: whisper strategy (kept as an option) ----------
+def test_whisper_strategy_restricts_to_ar_en():
+    m = StubModel([("garbage", "nn", [("ar", 0.30), ("en", 0.10), ("nn", 0.48)], -1.0),
+                   ("افتح المتصفح", "ar", None, -0.5)])
+    text, lang = make_stt(m, "whisper").transcribe(tone())
     assert lang == "ar" and text == "افتح المتصفح"
     assert m.calls[1]["language"] == "ar"
 
 
-def test_auto_language_keeps_valid_detection():
-    m = StubModel([("open the browser", "en", None)])
-    assert make_stt(m).transcribe(tone()) == ("open the browser", "en")
+def test_whisper_strategy_keeps_valid_detection():
+    m = StubModel([("open the browser", "en", None, -0.2)])
+    assert make_stt(m, "whisper").transcribe(tone()) == ("open the browser", "en")
     assert len(m.calls) == 1
 
 
-def test_repetitive_output_is_blanked():
-    m = StubModel([("mute mute mute mute", "en", None)])
-    assert make_stt(m).transcribe(tone(), language="en") == ("", "en")
-
-
-def test_empty_model_output():
-    m = StubModel([("", "en", None)])
-    assert make_stt(m).transcribe(tone(), language="en") == ("", "en")
+def test_bad_strategy_rejected():
+    with pytest.raises(ValueError):
+        SpeechToText.__init__(SpeechToText.__new__(SpeechToText), auto_strategy="nope")
