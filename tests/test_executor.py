@@ -192,9 +192,56 @@ def test_execution_time_under_one_second(cmd):
 
 
 # ---------------------------------------------------------------------------
-# 10. Create file default name
+# 10. Create file default name & edge cases
 # ---------------------------------------------------------------------------
 def test_create_file_default_name():
     res = execute({"intent": "create_file", "params": {}, "lang": "en"})
     assert res["success"] is True
     assert "new_file.txt" in res["message"]
+
+
+def test_none_params_field():
+    """Missing or None params should not crash."""
+    res = execute({"intent": "open_app", "params": None, "lang": "en"})
+    _assert_contract(res)
+    assert res["success"] is False
+
+
+def test_none_lang_field():
+    """Missing or None lang should default safely to English without crashing."""
+    res = execute({"intent": "volume_up", "params": {}, "lang": None})
+    _assert_contract(res)
+    assert res["success"] is True
+
+
+def test_path_traversal_backslash_blocked():
+    """Backslash and absolute paths must be rejected."""
+    res = execute({"intent": "create_file", "params": {"name": "..\\secret.txt"}, "lang": "en"})
+    _assert_contract(res)
+    assert res["success"] is False
+    assert "traversal" in res["message"].lower()
+
+
+def test_web_search_empty_query():
+    """Empty web search query should return failure."""
+    res = execute({"intent": "web_search", "params": {"query": "  "}, "lang": "en"})
+    _assert_contract(res)
+    assert res["success"] is False
+
+
+def test_web_search_offline(monkeypatch):
+    """When offline and not in dry-run, web search must notify user of offline status (CONTRACT.md §4)."""
+    monkeypatch.delenv("SOUNDOS_DRY_RUN", raising=False)
+    from executor import actions
+    monkeypatch.setattr(actions, "is_online", lambda: False)
+
+    res = execute({"intent": "web_search", "params": {"query": "python"}, "lang": "en"})
+    _assert_contract(res)
+    assert res["success"] is False
+    assert "internet" in res["message"].lower()
+
+    res_ar = execute({"intent": "web_search", "params": {"query": "python"}, "lang": "ar"})
+    _assert_contract(res_ar)
+    assert res_ar["success"] is False
+    assert "الإنترنت" in res_ar["message"]
+

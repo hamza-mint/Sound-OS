@@ -3,41 +3,57 @@
     "firefox": {
       "cmd": ["firefox"],
       "process": "firefox",
+      "fallbacks": [["firefox-esr"], ["librewolf"], ["waterfox"]],
+      "process_fallbacks": ["firefox-esr", "librewolf"],
       "aliases": ["firefox", "browser", "المتصفح", "فايرفوكس", "متصفح"]
     },
     "chrome": {
       "cmd": ["google-chrome"],
       "process": "chrome",
+      "fallbacks": [["google-chrome-stable"], ["chromium"], ["chromium-browser"], ["brave-browser"]],
+      "process_fallbacks": ["google-chrome", "chrome", "chromium", "brave"],
       "aliases": ["chrome", "google chrome", "كروم", "جوجل كروم"]
     },
     "terminal": {
       "cmd": ["x-terminal-emulator"],
       "process": "x-terminal-emulator",
+      "fallbacks": [["xfce4-terminal"], ["gnome-terminal"], ["konsole"], ["ptyxis"], ["xterm"], ["alacritty"], ["kitty"]],
+      "process_fallbacks": ["xfce4-terminal", "gnome-terminal", "konsole", "ptyxis", "xterm", "alacritty", "kitty"],
       "aliases": ["terminal", "bash", "الطرفية", "شاشة الأوامر", "الترمينال"]
     },
     "files": {
       "cmd": ["xdg-open", "."],
       "process": "thunar",
+      "fallbacks": [["thunar"], ["nautilus"], ["dolphin"], ["pcmanfm"], ["nemo"]],
+      "process_fallbacks": ["thunar", "nautilus", "dolphin", "pcmanfm", "nemo"],
       "aliases": ["files", "file manager", "الملفات", "مدير الملفات"]
     },
     "calculator": {
       "cmd": ["gnome-calculator"],
       "process": "gnome-calculator",
+      "fallbacks": [["kcalc"], ["galculator"], ["xcalc"], ["speedcrunch"]],
+      "process_fallbacks": ["gnome-calculator", "kcalc", "galculator", "xcalc"],
       "aliases": ["calculator", "calc", "الحاسبة", "الآلة الحاسبة"]
     },
     "editor": {
       "cmd": ["mousepad"],
       "process": "mousepad",
+      "fallbacks": [["gedit"], ["kate"], ["kwrite"], ["xed"], ["pluma"], ["leafpad"], ["featherpad"]],
+      "process_fallbacks": ["mousepad", "gedit", "kate", "kwrite", "xed", "pluma", "leafpad", "featherpad"],
       "aliases": ["editor", "text editor", "المحرر", "محرر النصوص", "المفكرة"]
     },
     "vlc": {
       "cmd": ["vlc"],
       "process": "vlc",
+      "fallbacks": [["mpv"], ["totem"], ["celluloid"], ["parole"], ["dragon"], ["elisa"]],
+      "process_fallbacks": ["vlc", "mpv", "totem", "celluloid", "parole", "dragon", "elisa"],
       "aliases": ["vlc", "media player", "مشغل الوسائط", "مشغل الميديا", "في ال سي"]
     },
     "settings": {
       "cmd": ["xfce4-settings-manager"],
       "process": "xfce4-settings-manager",
+      "fallbacks": [["gnome-control-center"], ["systemsettings"], ["kcmshell5"]],
+      "process_fallbacks": ["xfce4-settings-manager", "gnome-control-center", "systemsettings"],
       "aliases": ["settings", "control panel", "الإعدادات", "الضبط"]
     }
   },

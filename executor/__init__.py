@@ -67,7 +67,11 @@ def _resolve_folder(folder_name: str) -> str:
 # Handlers for Dispatch Table
 # ---------------------------------------------------------------------------
 def _handle_open_app(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]:
-    app_name = params.get("app", "")
+    app_name = (params.get("app") or "").strip()
+    if not app_name:
+        msg = "No application specified." if lang == "en" else "لم يتم تحديد التطبيق."
+        return False, msg
+
     app_info = _find_app(app_name)
     if not app_info:
         msg = f"Unknown application: '{app_name}'" if lang == "en" else f"تطبيق غير معروف: '{app_name}'"
@@ -87,7 +91,11 @@ def _handle_open_app(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]
 
 
 def _handle_close_app(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]:
-    app_name = params.get("app", "")
+    app_name = (params.get("app") or "").strip()
+    if not app_name:
+        msg = "No application specified." if lang == "en" else "لم يتم تحديد التطبيق."
+        return False, msg
+
     app_info = _find_app(app_name)
     if not app_info:
         msg = f"Unknown application: '{app_name}'" if lang == "en" else f"تطبيق غير معروف: '{app_name}'"
@@ -147,7 +155,7 @@ def _handle_brightness_down(params: dict, lang: str, dry_run: bool) -> Tuple[boo
 
 
 def _handle_open_folder(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]:
-    folder_raw = params.get("folder", "home")
+    folder_raw = params.get("folder") or "home"
     target_path = _resolve_folder(folder_raw)
     if dry_run:
         return True, f"[DRY-RUN] Opening folder {target_path}" if lang == "en" else f"[تجربة] فتح مجلد {target_path}"
@@ -158,13 +166,13 @@ def _handle_open_folder(params: dict, lang: str, dry_run: bool) -> Tuple[bool, s
 
 def _handle_create_file(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]:
     fname = params.get("name") or "new_file.txt"
-    if "/" in fname or ".." in fname:
+    if "/" in fname or "\\" in fname or ".." in fname or os.path.isabs(fname):
         msg = "Invalid filename: path traversal is not permitted." if lang == "en" else "اسم ملف غير صالح: غير مسموح بالمسارات المتداخلة."
         return False, msg
     if dry_run:
         return True, f"[DRY-RUN] Creating file {fname}" if lang == "en" else f"[تجربة] إنشاء ملف {fname}"
     ok, err = actions.create_user_file(fname)
-    msg = (f"File '{fname}' created." if ok else f"Failed to create file: {err}") if lang == "en" else (f"تم إنشاء الملف '{fname}'." if ok else f"فشل إنشاء الملف: {err}")
+    msg = (f"File '{fname}' created." if ok else f"Create failed: {err}") if lang == "en" else (f"تم إنشاء الملف '{fname}'." if ok else f"فشل إنشاء الملف: {err}")
     return ok, msg
 
 
@@ -172,7 +180,7 @@ def _handle_delete_file(params: dict, lang: str, dry_run: bool) -> Tuple[bool, s
     fname = params.get("name", "")
     if not fname:
         return False, "No file specified." if lang == "en" else "لم يتم تحديد اسم الملف."
-    if "/" in fname or ".." in fname:
+    if "/" in fname or "\\" in fname or ".." in fname or os.path.isabs(fname):
         msg = "Invalid filename: path traversal is not permitted." if lang == "en" else "اسم ملف غير صالح: غير مسموح بالمسارات المتداخلة."
         return False, msg
     ok, err = actions.delete_user_file(fname, dry_run=dry_run)
@@ -181,16 +189,22 @@ def _handle_delete_file(params: dict, lang: str, dry_run: bool) -> Tuple[bool, s
 
 
 def _handle_web_search(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]:
-    query = params.get("query", "")
+    query = (params.get("query") or "").strip()
+    if not query:
+        msg = "Empty search query." if lang == "en" else "استعلام البحث فارغ."
+        return False, msg
     if dry_run:
         return True, f"[DRY-RUN] Searching web for: {query}" if lang == "en" else f"[تجربة] بحث ويب عن: {query}"
     ok, err = actions.search_web(query)
+    if not ok and "No internet" in err:
+        msg = "No internet connection available." if lang == "en" else "لا يوجد اتصال بالإنترنت لإجراء البحث."
+        return False, msg
     msg = (f"Searching for '{query}'." if ok else f"Search error: {err}") if lang == "en" else (f"جاري البحث عن '{query}'." if ok else f"خطأ في البحث: {err}")
     return ok, msg
 
 
 def _handle_play_media(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]:
-    query = params.get("query", "")
+    query = (params.get("query") or "").strip()
     if dry_run:
         return True, "[DRY-RUN] Playing media." if lang == "en" else "[تجربة] تشغيل الوسائط."
     ok, err = actions.play_media_content(query)
@@ -242,8 +256,11 @@ def execute(command: dict) -> dict:
             return {"success": False, "message": "Invalid command format."}
 
         intent = command.get("intent")
-        params = command.get("params", {})
-        lang = command.get("lang", "en")
+        params = command.get("params") or {}
+        if not isinstance(params, dict):
+            params = {}
+
+        lang = command.get("lang") or "en"
         dry_run = os.getenv("SOUNDOS_DRY_RUN") == "1"
 
         handler = DISPATCH_TABLE.get(intent)
@@ -257,7 +274,9 @@ def execute(command: dict) -> dict:
     except Exception as exc:
         # Guarantee: Never crash or raise an unhandled exception
         logger.exception("Unexpected error in execute")
-        lang = command.get("lang", "en") if isinstance(command, dict) else "en"
+        lang = "en"
+        if isinstance(command, dict) and command.get("lang"):
+            lang = str(command["lang"])
         err_msg = f"Execution error: {exc}" if lang == "en" else f"خطأ في التنفيذ: {exc}"
         return {"success": False, "message": err_msg}
     finally:
