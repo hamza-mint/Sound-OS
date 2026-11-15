@@ -8,7 +8,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ui_tts import notify, speak
-from ui_tts import coucou_bridge as bar
+from ui_tts import dave_bridge as bar
 
 
 def talk(seconds):
@@ -20,7 +20,7 @@ def talk(seconds):
         time.sleep(0.05)
 
 
-print("Opening window (Chris flies in)")
+print("Opening window (Dave flies in)")
 bar.start()
 time.sleep(2.0)
 
