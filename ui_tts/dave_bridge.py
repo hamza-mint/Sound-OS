@@ -20,9 +20,14 @@ except Exception:
 # ---------- Settings (tweak freely) ----------
 LISTENING_TEXT = "Testing"   # shown while listening (3 dots animate after it)
 W, H = 420, 640              # window size (logical pixels, scaled on hi-dpi screens)
-SS = 3                       # anti-aliasing: draw 3x bigger, shrink down (2 = faster)
+FPS = 60                     # target frame rate
+SS = 3                       # smoothness of the robot; it lowers itself only if frames get too slow
+SS_LEVELS = (1, 2, 3)
+SHOW_FPS = False             # True: print the real frame rate to the terminal once a second
 ALWAYS_ON_TOP = False
-SPLASH_SECONDS = 1.4         # startup: Chris flies in (keep it short)
+SPLASH_SECONDS = 1.4         # startup: Dave flies in (keep it short)
+GREETING = "Hi, I'm Dave!\nHow can I help?"   # startup speech bubble ("" = off)
+GREET_SECONDS = 4.0          # how long it stays
 RESULT_SECONDS = 2.0         # how long the check / cross stays
 
 BG = (21, 23, 28)
@@ -42,6 +47,7 @@ BLUSH = (255, 140, 165)
 HX, HY = 210, 150            # robot head center
 CX, CY, R = 210, 400, 58     # voice circle center and radius
 RINGS = 4
+ROBOT_ROWS = 262             # the robot lives in the top part of the window; the voice circle below it
 
 STATUS = {                   # state -> (text, show dots)
     "idle": ("Ready", False),
@@ -57,8 +63,6 @@ _q = queue.Queue()
 _lock = threading.Lock()
 _thread = None
 _closed = False
-_coucou = None
-_coucou_checked = False
 
 
 # ---------- small helpers ----------
@@ -73,6 +77,11 @@ def _mix(a, b, p):
 def _ease_out(p):
     p = max(0.0, min(1.0, p))
     return 1 - (1 - p) ** 3
+
+
+def _ease_back(p):
+    p = max(0.0, min(1.0, p)) - 1
+    return 1 + 2.70158 * p ** 3 + 1.70158 * p ** 2
 
 
 def _arc(cx, cy, rx, ry, a0, a1, n=28):
@@ -93,8 +102,8 @@ class _Pen:
     """Draws in logical units on a supersampled image, with an optional
     transform (scale + rotate around a pivot, then move)."""
 
-    def __init__(self, d, k):
-        self.d, self.k = d, k
+    def __init__(self, d, k, org=(0, 0)):
+        self.d, self.k, self.org = d, k, org
         self.set()
 
     def set(self, ox=0.0, oy=0.0, rot=0.0, px=0.0, py=0.0, sx=1.0, sy=1.0):
@@ -104,8 +113,8 @@ class _Pen:
 
     def pt(self, x, y):
         dx, dy = (x - self.px) * self.sx, (y - self.py) * self.sy
-        return ((self.px + dx * self.c - dy * self.s + self.ox) * self.k,
-                (self.py + dx * self.s + dy * self.c + self.oy) * self.k)
+        return ((self.px + dx * self.c - dy * self.s + self.ox) * self.k - self.org[0],
+                (self.py + dx * self.s + dy * self.c + self.oy) * self.k - self.org[1])
 
     def poly(self, pts, fill):
         self.d.polygon([self.pt(x, y) for x, y in pts], fill=fill)
@@ -141,45 +150,56 @@ class _Pen:
     def oval(self, cx, cy, rx, ry, fill=None, outline=None, width=1.0):
         """Exact ellipse, no transform (call after set() with defaults)."""
         k = self.k
-        self.d.ellipse(((cx - rx) * k, (cy - ry) * k, (cx + rx) * k, (cy + ry) * k),
+        ox, oy = self.org
+        self.d.ellipse(((cx - rx) * k - ox, (cy - ry) * k - oy, (cx + rx) * k - ox, (cy + ry) * k - oy),
                        fill=fill, outline=outline, width=max(1, int(width * k)))
 
 
-# ---------- Coucou island (optional) ----------
-def _try_coucou(name, *args):
-    """Call coucou.<name>(*args) if a 'coucou' module with it exists. True if handled."""
-    global _coucou, _coucou_checked
-    try:
-        if not _coucou_checked:
-            _coucou_checked = True
-            try:
-                import coucou  # ASSUMPTION: module name and function names
-                _coucou = coucou
-            except Exception:
-                _coucou = None
-        fn = getattr(_coucou, name, None) if _coucou else None
-        if callable(fn):
-            fn(*args)
-            return True
-    except Exception:
-        pass
-    return False
+class _Layer:
+    """A small see-through canvas for one rectangle of the window. It is drawn extra
+    smooth (3x) because it holds the crisp shapes: the white circle, check, cross, dots."""
+
+    def __init__(self, k1, x, y, w, h, ss=3):
+        self.ss = ss
+        self.x0, self.y0 = int(math.floor(x * k1)), int(math.floor(y * k1))
+        self.w = int(math.ceil((x + w) * k1)) - self.x0
+        self.h = int(math.ceil((y + h) * k1)) - self.y0
+        self.im = Image.new("RGBA", (self.w * ss, self.h * ss), (255, 255, 255, 0))
+        self.pen = _Pen(ImageDraw.Draw(self.im), k1 * ss, org=(self.x0 * ss, self.y0 * ss))
+
+    def paste_on(self, base):
+        small = self.im.reduce(self.ss)
+        base.paste(small, (self.x0, self.y0), small)
 
 
 # ---------- the drawing + animation logic (no Tk in here) ----------
 class _Scene:
     def __init__(self, S, now):
-        self.S, self.K = S, S * SS
+        self.S = S
+        self.lv = SS_LEVELS.index(SS) if SS in SS_LEVELS else 1   # adaptive anti-aliasing level
+        self.lv_cap, self.times = len(SS_LEVELS) - 1, []
+        self.last_t, self.dt = None, 1 / 30
         self.pw, self.ph = int(round(W * S)), int(round(H * S))
         self.t0 = self.state_t = now
         self.state = "splash"
         self.level = self.real_level = self.real_t = 0.0
         self.heard = ""
         self.bub = 0.0                                   # thought bubble size 0..1
+        self.greet_start = self.greet_dismiss = None
         # smoothed pose: head x, head y, head tilt, left hand xy, right hand xy
         self.pose = [0.0, 0.0, 0.0, 158.0, 226.0, 262.0, 226.0]
 
+    @property
+    def ss(self):
+        return SS_LEVELS[self.lv]
+
+    @property
+    def k1(self):
+        return self.pw / W          # real screen pixels per layout unit
+
     def handle(self, cmd, arg, now):
+        if cmd != "level" and self.greet_dismiss is None:
+            self.greet_dismiss = now                     # any real activity closes the greeting
         if cmd == "wake":
             self.state, self.state_t, self.heard = "listening", now, ""
         elif cmd == "heard":
@@ -190,25 +210,50 @@ class _Scene:
             self.real_level = max(0.0, min(1.0, float(arg)))
             self.real_t = now
 
-    def _new(self, bg):
-        im = Image.new("RGB", (self.pw * SS, self.ph * SS), bg)
-        return im, _Pen(ImageDraw.Draw(im, "RGBA"), self.K)
+    def _new(self, bg, ss):
+        im = Image.new("RGB", (self.pw * ss, self.ph * ss), bg)
+        return im, _Pen(ImageDraw.Draw(im, "RGBA"), self.k1 * ss)
 
     def frame(self, now, measure):
         """Returns (PIL image, info). info is None during the splash."""
+        a = time.perf_counter()
+        self.dt = min(0.1, max(0.001, now - self.last_t)) if self.last_t is not None else 1 / 30
+        self.last_t = now
+        out = self._frame(now, measure)
+        if self.state != "splash":                    # the splash is heavier; don't judge speed by it
+            self._tune(time.perf_counter() - a)
+        return out
+
+    def _tune(self, spent):
+        """Too slow -> use less anti-aliasing (and never go back up past that point)."""
+        self.times.append(spent)
+        if len(self.times) < 20:
+            return
+        avg = sum(self.times) / len(self.times)
+        self.times = []
+        if avg > 0.013 and self.lv > 0:
+            self.lv -= 1
+            self.lv_cap = self.lv
+        elif self.lv < self.lv_cap:
+            ratio = (SS_LEVELS[self.lv + 1] / SS_LEVELS[self.lv]) ** 2
+            if avg * ratio < 0.009:
+                self.lv += 1
+
+    def _frame(self, now, measure):
         t = now - self.t0
         if self.state == "splash":
             if t < SPLASH_SECONDS:
                 return self._splash(t), None
-            self.state, self.state_t = "idle", now
+            self.state, self.state_t, self.greet_start = "idle", now, now
         return self._main(now, t, measure)
 
-    # ----- splash: Chris flies in, lands, and switches the app on -----
+    # ----- splash: Dave flies in, lands, and switches the app on -----
     def _splash(self, t):
         FLY = 0.65
-        im, pen = self._new(WHITE)
+        ss = 2 if self.S < 1.75 else 1               # the splash is short: keep it light
+        im, pen = self._new(WHITE, ss)
 
-        p = (t - 0.55) / 0.7                     # dark app background spreads out from Chris
+        p = (t - 0.55) / 0.7                     # dark app background spreads out from Dave
         if p > 0:
             rr = 1100 * _ease_out(p)
             pen.oval(HX, HY + 20, rr, rr, fill=BG)
@@ -242,7 +287,7 @@ class _Scene:
             c1 = 1.70158
             q = min(1.0, pp) - 1
             self._orb(pen, "idle", t, 0.0, 0.0, ACCENT, 0.06, pop=1 + (c1 + 1) * q ** 3 + c1 * q ** 2)
-        return im.reduce(SS)
+        return im.reduce(ss)
 
     # ----- main screen -----
     def _main(self, now, t, measure):
@@ -266,7 +311,7 @@ class _Scene:
             target = 0.06
         else:
             target = 0.6 * max(0.0, 1 - st / 0.8)
-        self.level += (target - self.level) * 0.3
+        self.level += (target - self.level) * (1 - math.exp(-self.dt * 10.7))
         accent = GREEN if state == "ok" else RED if state == "fail" else ACCENT
 
         dx = 0.0                                             # shake on failure
@@ -275,26 +320,58 @@ class _Scene:
             if k < 0.6:
                 dx = 9 * math.sin(k * 45) * (1 - k / 0.6)
 
-        self.bub += ((1.0 if thinking else 0.0) - self.bub) * 0.22
+        self.bub += ((1.0 if thinking else 0.0) - self.bub) * (1 - math.exp(-self.dt * 7.5))
 
-        im, pen = self._new(BG)
-        self._robot(pen, state, thinking, t, st, dx, accent)
-        self._orb(pen, state, t, st, dx, accent, self.level)
+        k1, ss, lvl = self.k1, self.ss, self.level
+        base = Image.new("RGB", (self.pw, self.ph), BG)
+        fx, r, boost = self._orb_geom(state, t, st, dx, lvl)
+        # 1) the soft translucent rings: big but blurry shapes, drawn at screen resolution (fast)
+        self._rings(_Pen(ImageDraw.Draw(base, "RGBA"), k1), accent, t, lvl, 1.0, fx, r, boost)
+        # 2) the robot: drawn extra smooth, in its own strip at the top
+        rh = int(round(ROBOT_ROWS * k1))
+        rim = Image.new("RGB", (self.pw * ss, rh * ss), BG)
+        rpen = _Pen(ImageDraw.Draw(rim, "RGBA"), k1 * ss)
+        self._robot(rpen, state, thinking, t, st, dx, accent)
+        g = self._greeting(rpen, now)
+        base.paste(rim.reduce(ss), (0, 0))
+        # 3) the white circle with check / cross: small layer, extra smooth
+        lay = _Layer(k1, fx - 85, CY - 85, 170, 170)
+        self._disc(lay.pen, state, st, fx, r)
+        lay.paste_on(base)
 
         text, dotted = STATUS[state]
         tw = measure(text) / self.S
         x0 = (W - (tw + (38 if dotted else 0))) / 2
-        if dotted:
-            pen.set()
+        if dotted:                                           # bouncing dots: small layer too
+            dl = _Layer(k1, x0 + tw + 4, 555, 56, 30)
             for i in range(3):
-                pen.oval(x0 + tw + 11 + i * 12, 572 - 7 * max(0.0, math.sin(t * 6 - i * 0.9)),
-                         3.4, 3.4, fill=WHITE)
+                dl.pen.oval(x0 + tw + 11 + i * 12, 572 - 7 * max(0.0, math.sin(t * 6 - i * 0.9)),
+                            3.4, 3.4, fill=WHITE)
+            dl.paste_on(base)
         info = {
             "text": text, "x": x0,
             "color": _hex(GREEN if state == "ok" else RED if state == "fail" else WHITE),
             "sub": self.heard if state in ("heard", "ok", "fail") else "",
+            "bubble": GREETING if g > 0.9 else "",
+            "bx": 337 + self.pose[0] * 0.5, "by": 81 + self.pose[1] * 0.5,
         }
-        return im.reduce(SS), info
+        return base, info
+
+    # ----- startup speech bubble -----
+    def _greeting(self, pen, now):
+        if not GREETING or self.greet_start is None:
+            return 0.0
+        ga = now - self.greet_start
+        g = _ease_back(ga / 0.35) * min(1.0, (GREET_SECONDS - ga) / 0.25)
+        if self.greet_dismiss is not None:
+            g *= max(0.0, 1 - (now - self.greet_dismiss) / 0.2)
+        if g <= 0.02:
+            return 0.0
+        pen.set(ox=self.pose[0] * 0.5, oy=self.pose[1] * 0.5, px=252, py=126, sx=g, sy=g)
+        CL = (240, 244, 252)
+        pen.rrect(262, 50, 412, 112, 18, CL)
+        pen.poly([(276, 108), (298, 108), (252, 126)], CL)
+        return g
 
     # ----- the robot -----
     def _robot(self, pen, state, thinking, t, st, dx, accent,
@@ -320,7 +397,7 @@ class _Scene:
                   158 + 2 * sw, 226, 262 - 2 * sw, 226]
         if pose_to is not None:
             tg = pose_to
-        f = 0.5 if pose_to is not None else 0.3
+        f = 1 - math.exp(-self.dt * (20.8 if pose_to is not None else 10.7))
         for i in range(7):
             self.pose[i] += (tg[i] - self.pose[i]) * f
         hx_, hy_, rot, lhx, lhy, rhx, rhy = self.pose
@@ -430,10 +507,7 @@ class _Scene:
                                4 + 7 * (1 - life)), col)
 
     # ----- voice circle with waves, check and cross -----
-    def _orb(self, pen, state, t, st, dx, accent, lvl, pop=1.0):
-        pen.set()
-        if pop < 0.02:
-            return
+    def _orb_geom(self, state, t, st, dx, lvl, pop=1.0):
         fx = CX + dx
         if state == "ok":
             scale = 1 + 0.08 * math.sin(math.pi * min(1.0, st / 0.35))
@@ -441,8 +515,12 @@ class _Scene:
             scale = 1 + 0.015 * math.sin(t * 2)
         r = R * scale * (1 + 0.05 * lvl) * pop
         boost = min(1.0, 0.25 + lvl * 1.5)
+        return fx, r, boost
 
-        for i in reversed(range(RINGS)):                      # semi-transparent wavy rings
+    def _rings(self, pen, accent, t, lvl, pop, fx, r, boost):
+        pen.set()
+        under = BG                                            # rings look see-through, but each is
+        for i in reversed(range(RINGS)):                      # one solid blended color (much faster)
             base = r + 15 * pop * (i + 1)
             a = (0.20 - 0.035 * i) * boost
             pts = []
@@ -451,12 +529,12 @@ class _Scene:
                 rad = (base + lvl * 11 * math.sin(3 * th + t * 3.6 - i * 1.1)
                        + lvl * 6 * math.sin(5 * th - t * 2.4 + i))
                 pts.append((fx + rad * math.cos(th), CY + rad * math.sin(th)))
-            pen.poly(pts, accent + (int(255 * a),))
-            edge = [pen.pt(x, y) for x, y in pts]
-            pen.d.line(edge + [edge[0]], fill=accent + (int(150 * boost * (1 - i * 0.2)),),
-                       width=max(1, int(1.4 * self.K)), joint="curve")
-        pen.oval(fx, CY, r, r, fill=WHITE)
+            under = _mix(under, accent, a)
+            pen.poly(pts, under)
 
+    def _disc(self, pen, state, st, fx, r):
+        pen.set()
+        pen.oval(fx, CY, r, r, fill=WHITE)
         if state == "ok":                                     # check draws itself
             la, lb = math.hypot(14, 14), math.hypot(28, 32)
             d = min(1.0, st / 0.45) * (la + lb)
@@ -476,12 +554,20 @@ class _Scene:
                                 (fx + a[0] + (b[0] - a[0]) * p, CY + a[1] + (b[1] - a[1]) * p)],
                                9, RED)
 
+    def _orb(self, pen, state, t, st, dx, accent, lvl, pop=1.0):
+        """Everything in one go (used by the splash)."""
+        if pop < 0.02:
+            return
+        fx, r, boost = self._orb_geom(state, t, st, dx, lvl, pop)
+        self._rings(pen, accent, t, lvl, pop, fx, r, boost)
+        self._disc(pen, state, st, fx, r)
+
 
 # ---------- Tkinter windows (run in their own thread) ----------
 class _App:
     def __init__(self, root, tk, tkfont, ImageTk, S):
         self.root, self.S = root, S
-        self.scene = sc = _Scene(S, time.time())
+        self.scene = sc = _Scene(S, time.perf_counter())
         root.title("Sound OS")
         root.resizable(False, False)
         root.configure(bg=_hex(WHITE))
@@ -504,6 +590,7 @@ class _App:
             return -max(1, int(round(v * S)))
         self.f_status = tkfont.Font(family="Helvetica", size=px(24), weight="bold")
         f_sub = tkfont.Font(family="Helvetica", size=px(14))
+        f_bub = tkfont.Font(family="Helvetica", size=px(14), weight="bold")
         f_title = tkfont.Font(family="Helvetica", size=px(12), weight="bold")
         h = "hidden"
         self.t_title = cv.create_text(W / 2 * S, 28 * S, text="SOUND OS", fill=_hex(GREY),
@@ -512,8 +599,12 @@ class _App:
                                        font=self.f_status, state=h)
         self.t_sub = cv.create_text(W / 2 * S, 606 * S, text="", fill=_hex(GREY), font=f_sub,
                                     width=int(340 * S), justify="center", state=h)
-        self.items = (self.t_title, self.t_status, self.t_sub)
+        self.t_bubble = cv.create_text(0, 0, text="", fill=_hex((40, 48, 70)), justify="center",
+                                       font=f_bub, state=h)
+        self.items = (self.t_title, self.t_status, self.t_sub, self.t_bubble)
         self.ui = False
+        self.k_status = self.k_sub = self.k_bub = None
+        self.fc, self.fc_t = 0, time.perf_counter()
         self.tick()
 
     def close(self):
@@ -536,7 +627,7 @@ class _App:
                 pass
 
     def tick(self):
-        t0 = time.time()
+        t0 = time.perf_counter()
         try:
             sc = self.scene
             if sc.state != "splash":
@@ -544,10 +635,14 @@ class _App:
             img, info = sc.frame(t0, self.f_status.measure)
             self.photo.paste(img)
             self.show_text(info)
+            self.fc += 1
+            if SHOW_FPS and t0 - self.fc_t >= 1.0:
+                print(f"[ui_tts] {self.fc / (t0 - self.fc_t):.0f} fps, anti-aliasing x{sc.ss}")
+                self.fc, self.fc_t = 0, t0
         except Exception:
             pass
         try:
-            self.root.after(max(1, int(33 - (time.time() - t0) * 1000)), self.tick)
+            self.root.after(max(1, int(1000 / FPS - (time.perf_counter() - t0) * 1000)), self.tick)
         except Exception:
             pass
 
@@ -559,9 +654,19 @@ class _App:
             self.ui = True
             for it in self.items:
                 cv.itemconfigure(it, state="normal")
-        cv.coords(self.t_status, info["x"] * S, 565 * S)
-        cv.itemconfigure(self.t_status, text=info["text"], fill=info["color"])
-        cv.itemconfigure(self.t_sub, text=info["sub"])
+        key = (info["text"], info["color"], round(info["x"], 1))
+        if key != self.k_status:
+            self.k_status = key
+            cv.coords(self.t_status, info["x"] * S, 565 * S)
+            cv.itemconfigure(self.t_status, text=info["text"], fill=info["color"])
+        if info["sub"] != self.k_sub:
+            self.k_sub = info["sub"]
+            cv.itemconfigure(self.t_sub, text=info["sub"])
+        key = (info["bubble"], round(info["bx"], 1), round(info["by"], 1))
+        if key != self.k_bub and (info["bubble"] or self.k_bub is None or self.k_bub[0]):
+            self.k_bub = key
+            cv.coords(self.t_bubble, info["bx"] * S, info["by"] * S)
+            cv.itemconfigure(self.t_bubble, text=info["bubble"])
 
 
 class _Plain:
@@ -679,8 +784,7 @@ def set_level(level) -> None:
 
 def on_wake() -> None:
     try:
-        if not _try_coucou("on_wake"):
-            _send("wake")
+        _send("wake")
     except Exception:
         pass
 
@@ -689,8 +793,7 @@ def on_heard(text) -> None:
     try:
         text = str(text)
         text = text if len(text) <= 80 else text[:77] + "..."
-        if not _try_coucou("on_heard", text):
-            _send("heard", text)
+        _send("heard", text)
     except Exception:
         pass
 
@@ -698,7 +801,6 @@ def on_heard(text) -> None:
 def on_done(success) -> None:
     try:
         ok = bool(success)
-        if not _try_coucou("on_done", ok):
-            _send("done", ok)
+        _send("done", ok)
     except Exception:
         pass
