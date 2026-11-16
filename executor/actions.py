@@ -199,11 +199,33 @@ def adjust_brightness(direction: str) -> Tuple[bool, str]:
 # Application Controls (Open / Graceful Close)
 # ---------------------------------------------------------
 def launch_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
-    """Launch application as a detached background process."""
+    """
+    Launch application as a detached background process.
+    Senior Enhancement:
+    1. If app is already running and wmctrl is installed, bring window to front (Focus).
+    2. Tries primary cmd first, then fallback_cmds for cross-distro compatibility (Fedora/Ubuntu/etc).
+    """
+    proc_name = app_config.get("process", "")
+    # Check if app is already running and focus its window
+    if proc_name and shutil.which("wmctrl"):
+        ok, _ = _run_subcommand(["wmctrl", "-a", proc_name])
+        if ok:
+            return True, f"Focused running {proc_name}."
+
+    # Try primary cmd
     cmd = app_config.get("cmd", [])
-    if not cmd:
-        return False, "No executable command configured for this application."
-    return _spawn_detached(cmd)
+    if cmd and shutil.which(cmd[0]):
+        return _spawn_detached(cmd)
+
+    # Try fallback commands across distributions (Fedora, Arch, Debian)
+    fallback_cmds = app_config.get("fallback_cmds", [])
+    for fb_cmd in fallback_cmds:
+        if fb_cmd and shutil.which(fb_cmd[0]):
+            return _spawn_detached(fb_cmd)
+
+    if cmd:
+        return _spawn_detached(cmd)
+    return False, "No executable command configured for this application."
 
 
 def terminate_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
