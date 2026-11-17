@@ -364,13 +364,10 @@ def play_media_content(query: str = "") -> Tuple[bool, str]:
     clean_query = (query or "").strip()
     if clean_query:
         # If user asked for a specific artist/song, open YouTube search if online
-        if check_internet_connection():
-            encoded = urllib.parse.quote(clean_query)
-            return _spawn_detached(["xdg-open", f"https://www.youtube.com/results?search_query={encoded}"])
-        music_dir = Path.home() / "Music"
-        if music_dir.exists():
-            return _spawn_detached(["xdg-open", str(music_dir)])
-        return False, "offline"
+        if not check_internet_connection():
+            return False, "offline"
+        encoded = urllib.parse.quote(clean_query)
+        return _spawn_detached(["xdg-open", f"https://www.youtube.com/results?search_query={encoded}"])
     else:
         # Default: open VLC / MPV / media player or music folder
         for player in ("vlc", "mpv", "totem", "celluloid"):
