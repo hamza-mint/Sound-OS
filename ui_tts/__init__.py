@@ -73,3 +73,10 @@ def play_wake_sound() -> None:
     play_wake_ack()
 
 
+# Export Dave voice UI bridge functions
+try:
+    from .dave_bridge import on_wake, on_heard, on_done, start, set_level
+except Exception:
+    pass
+
+

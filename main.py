@@ -10,7 +10,10 @@ from intent_parser import parse, parse_yes_no
 from safety import check
 from executor import execute
 from ui_tts import speak, notify, play_wake_ack, play_done_sound
-from ui_tts.coucou_bridge import on_wake, on_heard, on_done
+try:
+    from ui_tts.dave_bridge import on_wake, on_heard, on_done
+except ImportError:
+    from ui_tts.coucou_bridge import on_wake, on_heard, on_done
 
 
 def handle(text, ask_yes_no):
