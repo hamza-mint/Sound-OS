@@ -54,4 +54,13 @@ def record_wake_clip(max_seconds: float = 1.6, silence_seconds: float = 0.35) ->
         return ""
 
 
-__all__ = ["wait_for_wake_word", "record_utterance", "record_wake_clip"]
+def get_pending_command():
+    """Retrieve and clear any pre-captured direct command heard during wake detection."""
+    try:
+        from .wakeword import get_pending_command as _impl
+        return _impl()
+    except Exception:
+        return None
+
+
+__all__ = ["wait_for_wake_word", "record_utterance", "record_wake_clip", "get_pending_command"]

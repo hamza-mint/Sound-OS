@@ -189,8 +189,34 @@ def _is_wake_word(text: str) -> bool:
     return False
 
 
+_pending_command = None
+
+
+def get_pending_command() -> Optional[str]:
+    """Retrieve and clear any command pre-captured during wake detection."""
+    global _pending_command
+    cmd = _pending_command
+    _pending_command = None
+    return cmd
+
+
+def _strip_wake_word(text: str) -> str:
+    """Remove leading/trailing wake word phrases from text (e.g. 'Hey Dave open browser' -> 'open browser')."""
+    norm = text.strip()
+    patterns = [
+        r"^(?:hey|hay|hi|ay|hello|ok|okay)?\s*(?:dave|dev|david|dafe|day)\s*[,.:\-]?\s*",
+        r"^(?:هاي|هي|يا|الو)?\s*(?:ديف|دايف|ديب)\s*[,.:\-]?\s*",
+        r"\s*[,.:\-]?\s*(?:hey|hay|hi|ay|hello|ok|okay)?\s*(?:dave|dev|david|dafe|day)$",
+        r"\s*[,.:\-]?\s*(?:هاي|هي|يا|الو)?\s*(?:ديف|دايف|ديب)$",
+    ]
+    for p in patterns:
+        norm = re.sub(p, "", norm, flags=re.IGNORECASE).strip()
+    return norm
+
+
 def _wait_phrase_or_enter() -> bool:
-    """Wake on 'Hey Dave' / 'Hi Dave' or wake phrase detection, or Enter key."""
+    """Wake on 'Hey Dave' / 'Hi Dave', combined wake+command, or direct command."""
+    global _pending_command
     try:
         from stt import transcribe
     except Exception:
@@ -200,7 +226,7 @@ def _wait_phrase_or_enter() -> bool:
     if transcribe is None or os.environ.get("SOUNDOS_WAKE_ENERGY_ONLY") == "1":
         return _wait_energy_or_enter()
 
-    _log("Listening... Say 'Hey Dave' or 'Hi Dave' (or press Enter)")
+    _log("Listening... Say 'Hey Dave' or speak a direct command (or press Enter)")
     from .recorder import record_wake_clip
 
     while True:
@@ -209,7 +235,7 @@ def _wait_phrase_or_enter() -> bool:
             return True
 
         # Capture a short, fast-trigger candidate speech clip
-        path = record_wake_clip(max_seconds=1.6, silence_seconds=0.35)
+        path = record_wake_clip(max_seconds=1.8, silence_seconds=0.35)
         if _enter_pressed():
             return True
 
@@ -217,15 +243,28 @@ def _wait_phrase_or_enter() -> bool:
             continue
 
         try:
-            # Force English language hint for fast decoding without 99-language scanning
-            res = transcribe(path, lang_hint="en")
+            res = transcribe(path)
             text = res.get("text", "") if isinstance(res, dict) else ""
             if text:
+                from intent_parser import parse
+
+                # Check 1: Wake word detected (with or without attached command)
                 if _is_wake_word(text):
-                    _log(f"Wake word matched: '{text}' ✅")
+                    cmd_part = _strip_wake_word(text)
+                    if cmd_part and parse(cmd_part)["intent"] != "unknown":
+                        _log(f"Wake word + Command captured: '{text}' -> '{cmd_part}' 🚀")
+                        _pending_command = cmd_part
+                    else:
+                        _log(f"Wake word matched: '{text}' ✅")
                     return True
-                else:
-                    _log(f"Heard: '{text}' (waiting for 'Hey Dave' / 'Hi Dave')...")
+
+                # Check 2: Direct Command! Spoke a command directly without repeating 'Hey Dave'
+                if parse(text)["intent"] != "unknown":
+                    _log(f"Direct command captured: '{text}' 🚀")
+                    _pending_command = text
+                    return True
+
+                _log(f"Heard: '{text}' (waiting for 'Hey Dave' or command)...")
         except Exception as exc:
             _log(f"STT check error: {exc}")
         finally:

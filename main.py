@@ -4,8 +4,9 @@ Run the real loop:       python main.py
 """
 import argparse
 import os
+import time
 
-from audio import wait_for_wake_word, record_utterance
+from audio import wait_for_wake_word, record_utterance, get_pending_command
 from stt import transcribe
 from intent_parser import parse, parse_yes_no, split_compound
 from safety import check
@@ -42,53 +43,65 @@ def _execute_single(text, ask_yes_no):
 
 def handle(text, ask_yes_no):
     """text -> split_compound -> parse -> safety -> (confirm) -> execute -> feedback.
-    Supports single commands as well as multi-action compound requests (Arabic & English).
+    Provides clear visibility on understanding, execution progress, and timing.
     """
+    t_start = time.perf_counter()
     on_heard(text)
     commands = split_compound(text)
 
+    print(f"\n[Sound OS] ──────────────────────────────────────────────")
+    print(f"[Sound OS] 🎤 Heard Input: {text!r}")
     if len(commands) > 1:
-        # Compound / multi-action request
-        results = []
-        all_success = True
-        lang = "en"
-        for cmd in commands:
-            res = _execute_single(cmd, ask_yes_no)
-            results.append(res)
-            lang = res.get("lang", lang)
-            if not res.get("success", False):
-                all_success = False
+        print(f"[Sound OS] 🔗 Multi-action: Split into {len(commands)} commands: {commands}")
 
-        messages = [r.get("message", "").strip().rstrip(".") for r in results if r.get("message", "").strip()]
-        connector = " و " if lang == "ar" else " and "
-        combined_msg = connector.join(messages)
+    results = []
+    all_success = True
+    lang = "en"
 
-        if all_success:
-            play_done_sound()
-            if combined_msg:
-                speak(combined_msg, lang)
+    for i, cmd in enumerate(commands, 1):
+        t_cmd_start = time.perf_counter()
+        parsed = parse(cmd)
+        intent = parsed.get("intent", "unknown")
+        params = parsed.get("params", {})
+
+        prefix = f"[{i}/{len(commands)}]" if len(commands) > 1 else ""
+        print(f"[Sound OS] 🧠 Understood Action {prefix}:")
+        print(f"   • Command:  {cmd!r}")
+        print(f"   • Intent:   {intent}")
+        if params:
+            print(f"   • Params:   {params}")
+        print(f"   • Status:   Executing...")
+
+        res = _execute_single(cmd, ask_yes_no)
+        cmd_time = time.perf_counter() - t_cmd_start
+        results.append(res)
+        lang = res.get("lang", lang)
+        ok = res.get("success", False)
+        msg = res.get("message", "")
+
+        if ok:
+            print(f"   • Result:   ✅ {msg} (completed in {cmd_time:.2f}s)")
         else:
-            speak(combined_msg or ("Failed." if lang == "en" else "فشل."), lang)
+            all_success = False
+            print(f"   • Result:   ❌ {msg} (failed in {cmd_time:.2f}s)")
 
-        notify("Sound OS", combined_msg or "Done")
-        on_done(all_success)
-        return {"success": all_success, "message": combined_msg, "results": results}
+    messages = [r.get("message", "").strip().rstrip(".") for r in results if r.get("message", "").strip()]
+    connector = " and " if lang == "en" else " و "
+    combined_msg = connector.join(messages)
 
-    # Single command
-    result = _execute_single(text, ask_yes_no)
-    success = result.get("success", False)
-    msg = result.get("message", "")
-    lang = result.get("lang", "en")
-    if success:
+    if all_success:
         play_done_sound()
-        # Avoid double 'Done' speech: play_done_sound() already speaks "Done."
-        if msg.strip().lower() not in ["done.", "done", "تم.", "تم"]:
-            speak(msg, lang)
+        if combined_msg:
+            speak(combined_msg, lang)
     else:
-        speak(msg or "Failed.", lang)
-    notify("Sound OS", msg)
-    on_done(success)
-    return result
+        speak(combined_msg or ("Failed." if lang == "en" else "فشل."), lang)
+
+    notify("Sound OS", combined_msg or "Done")
+    on_done(all_success)
+    total_elapsed = time.perf_counter() - t_start
+    print(f"[Sound OS] ⏱ Total Duration: {total_elapsed:.2f}s")
+    print(f"[Sound OS] ──────────────────────────────────────────────\n")
+    return {"success": all_success, "message": combined_msg, "results": results}
 
 
 def listen_text():
@@ -114,16 +127,22 @@ if __name__ == "__main__":
         print(f"[STT Recognized]: text={stt_res['text']!r} lang={stt_res['lang']} (confidence={stt_res.get('confidence', 1.0):.2f})")
         handle(stt_res["text"], ask_yes_no=lambda: input("yes/no> "))
     else:
-        print("[Sound OS] Ready and listening for wake word...")
+        print("[Sound OS] Ready and listening for wake word or direct command...")
         while True:
             wait_for_wake_word()
-            print("[Sound OS] 🔔 Wake word detected! 'I am here'")
-            on_wake()
-            play_wake_ack()
-            raw_text = listen_text()
-            if raw_text:
-                print(f"[Sound OS] Heard: {raw_text!r}")
-                handle(raw_text, ask_yes_no=listen_text)
+            pending_cmd = get_pending_command()
+            if pending_cmd:
+                print(f"\n[Sound OS] 🚀 Command captured directly: {pending_cmd!r}")
+                on_wake()
+                play_wake_ack()
+                handle(pending_cmd, ask_yes_no=listen_text)
             else:
-                on_done(False)
+                print("\n[Sound OS] 🔔 Wake word detected! 'I am here'")
+                on_wake()
+                play_wake_ack()
+                raw_text = listen_text()
+                if raw_text:
+                    handle(raw_text, ask_yes_no=listen_text)
+                else:
+                    on_done(False)
 

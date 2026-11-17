@@ -18,7 +18,7 @@ except Exception:
     _PIL = False
 
 # ---------- Settings (tweak freely) ----------
-LISTENING_TEXT = "Testing"   # shown while listening (3 dots animate after it)
+LISTENING_TEXT = "Listening"   # shown while listening (3 dots animate after it)
 W, H = 420, 640              # window size (logical pixels, scaled on hi-dpi screens)
 FPS = 60                     # target frame rate
 SS = 3                       # smoothness of the robot; it lowers itself only if frames get too slow

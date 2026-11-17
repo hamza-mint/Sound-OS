@@ -59,11 +59,11 @@ def _standalone(m, t):
 
 # ------------------------------------------------------------ vocabulary
 APPS = {   # canonical name (what the executor receives) -> spoken aliases
-    "firefox":    ["فايرفوكس", "فيرفوكس", "فاير فوكس", "firefox", "mozilla", "متصفح", "browser", "web browser"],
+    "firefox":    ["فايرفوكس", "فيرفوكس", "فاير فوكس", "firefox", "mozilla", "متصفح", "browser", "web browser", "براوزر", "البراوزر"],
     "chrome":     ["كروم", "chrome", "chromium"],
     "terminal":   ["تيرمينال", "ترمينال", "تيرمنال", "طرفيه", "terminal", "console", "command line"],
     "files":      ["مدير الملفات", "ملفات", "file manager", "files", "thunar"],
-    "calculator": ["حاسبه", "الاله الحاسبه", "كالكيوليتر", "كالكولاتور", "calculator", "calc"],
+    "calculator": ["حاسبه", "الاله الحاسبه", "كالكيوليتر", "كالكولاتور", "calculator", "calc", "كلكيوليتر", "كالكو ليتر", "بنكا لكو ليتر"],
     "editor":     ["محرر النصوص", "محرر", "نوت باد", "نوتباد", "text editor", "editor", "notepad", "gedit", "mousepad"],
     "vlc":        ["vlc", "فلك", "مشغل الفيديو", "مشغل الميديا", "media player"],
     "settings":   ["اعدادات", "سيتنجز", "settings", "preferences"],
@@ -265,6 +265,10 @@ def _prepare(raw):
     t = N(raw)
     t = re.sub(r"\bgoogle chrome\b", "chrome", t)                # not a web search
     t = re.sub(r"\bجوجل كروم\b", "كروم", t)
+    # Common speech transliterations from English spoken in Arabic context
+    t = re.sub(r"\b(?:او\s*بنكا|او\s*بن|اوبن)\b", "open", t)
+    t = re.sub(r"\b(?:لكو\s*ليتر|كالكو\s*ليتر|كلكوليتر|كالكيوليتر)\b", "calculator", t)
+    t = re.sub(r"\b(?:براوزر|البراوزر)\b", "browser", t)
     t = re.sub(NOISE, " ", t)
     return re.sub(r"\s+", " ", t).strip()
 

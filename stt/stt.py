@@ -91,6 +91,8 @@ class SpeechToText:
             vad_filter=True,                    # drop silence/noise before decoding
             vad_parameters={"min_silence_duration_ms": 300},
             max_new_tokens=96,                  # support compound/longer commands without truncation
+            no_repeat_ngram_size=3,             # completely prevent repetitive hallucination loops
+            repetition_penalty=1.2,
         )
         # `segments` is a generator: the real decoding happens in this line
         text = " ".join(s.text.strip() for s in segments).strip()

@@ -28,6 +28,21 @@ def transcribe(wav_path: str, lang_hint: str | None = None) -> dict:
     try:
         model = get_model()
         text, lang = model.transcribe(wav_path, language=lang_hint)
+
+        # Cross-language recovery: if auto-detect produced an unrecognized intent,
+        # test the alternative language (en/ar) to recover accented commands (e.g. "Open calculator")
+        if lang_hint is None and text:
+            try:
+                from intent_parser import parse
+                if parse(text).get("intent") == "unknown":
+                    other_lang = "en" if lang == "ar" else "ar"
+                    other_text, other_l = model.transcribe(wav_path, language=other_lang)
+                    if other_text and parse(other_text).get("intent") != "unknown":
+                        text = other_text
+                        lang = other_l
+            except Exception:
+                pass
+
         return {
             "text": text,
             "lang": lang,
