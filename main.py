@@ -3,6 +3,7 @@ Run with no microphone:  python main.py --text "افتح فايرفوكس"
 Run the real loop:       python main.py
 """
 import argparse
+import os
 
 from audio import wait_for_wake_word, record_utterance
 from stt import transcribe
@@ -19,6 +20,12 @@ except ImportError:
 def _execute_single(text, ask_yes_no):
     """Execute a single atomic command through safety and executor."""
     parsed = parse(text)
+
+    # Honor preferred response/TTS language (English by default for fast, low-latency audio)
+    resp_lang = os.environ.get("SOUNDOS_TTS_LANG", "en").lower().strip()
+    if resp_lang in ("en", "ar"):
+        parsed["lang"] = resp_lang
+
     verdict = check(parsed)                       # {"decision": allow|confirm|block, "message": str}
     lang = parsed["lang"]
     if verdict["decision"] == "block":
