@@ -77,40 +77,18 @@ def speak(text: str, lang: str = "en") -> None:
 
 
 def play_wake_ack() -> None:
-    """Play 'I am here' response when wake word is detected. Never raises."""
-    try:
-        wav = Path(__file__).parent / "assets" / "i_am_here.wav"
-        if not wav.is_file():
-            wav = Path(__file__).parent / "assets" / "wake.wav"
-        if wav.is_file():
-            subprocess.run(
-                ["aplay", "-q", str(wav)],
-                check=False,
-                timeout=3,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-    except Exception:
-        pass
+    """Silenced: TTS speaks wake responses directly without playing static wav files."""
+    pass
 
 
 def play_done_sound() -> None:
-    """Play 'Done' response when a command is executed. Never raises."""
-    try:
-        wav = Path(__file__).parent / "assets" / "done.wav"
-        if wav.is_file():
-            subprocess.Popen(
-                ["aplay", "-q", str(wav)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-    except Exception:
-        pass
+    """Silenced: TTS speaks completion results directly without playing static wav files."""
+    pass
 
 
 def play_wake_sound() -> None:
-    """Play wake sound cue. Never raises."""
-    play_wake_ack()
+    """Silenced: TTS handles speech feedback."""
+    pass
 
 
 # Export Dave voice UI bridge functions

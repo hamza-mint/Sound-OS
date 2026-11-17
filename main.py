@@ -90,7 +90,6 @@ def handle(text, ask_yes_no):
     combined_msg = connector.join(messages)
 
     if all_success:
-        play_done_sound()
         if combined_msg:
             speak(combined_msg, lang)
     else:
@@ -134,12 +133,13 @@ if __name__ == "__main__":
             if pending_cmd:
                 print(f"\n[Sound OS] 🚀 Command captured directly: {pending_cmd!r}")
                 on_wake()
-                play_wake_ack()
                 handle(pending_cmd, ask_yes_no=listen_text)
             else:
-                print("\n[Sound OS] 🔔 Wake word detected! 'I am here'")
+                print("\n[Sound OS] 🔔 Wake word detected!")
                 on_wake()
-                play_wake_ack()
+                # TTS speaks wake response naturally (no static i_am_here.wav file)
+                wake_prompt = "Yes?" if os.environ.get("SOUNDOS_TTS_LANG", "en").lower().strip() == "en" else "نعم؟"
+                speak(wake_prompt, "en")
                 raw_text = listen_text()
                 if raw_text:
                     handle(raw_text, ask_yes_no=listen_text)

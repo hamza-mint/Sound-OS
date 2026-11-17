@@ -23,8 +23,8 @@ ALLOWED_LANGS = ("ar", "en")     # the only languages the project supports
 
 # ONE concise domain-rich prompt per language to guide vocabulary and punctuation
 PROMPTS = {
-    "ar": "افتح المتصفح، علي الصوت، وطي الصوت، اكتم، شغل موسيقى، افتح الآلة الحاسبة، افتح الملفات، اقفل، ابحث عن.",
-    "en": "Open the browser, turn up volume, lower volume, mute, play music, open calculator, open files, close, search.",
+    "ar": "ديف، افتح المتصفح، علي الصوت، وطي الصوت، اكتم، شغل موسيقى، افتح الآلة الحاسبة، افتح الملفات، اقفل، ابحث عن.",
+    "en": "Hey Dave, open the browser, turn up volume, lower volume, mute, play music, open calculator, open files, close, search.",
 }
 
 SILENCE_RMS = 0.003    # gate for (almost) digital silence; VAD handles real noise
@@ -73,8 +73,10 @@ class SpeechToText:
                    for i in range(len(words) - 2))
 
     # ---------- decoding ----------
-    def _decode(self, audio, language, use_prompt):
-        if not use_prompt:
+    def _decode(self, audio, language, use_prompt, custom_prompt=None):
+        if custom_prompt is not None:
+            prompt = custom_prompt
+        elif not use_prompt:
             prompt = None
         elif language:
             prompt = PROMPTS[language]
@@ -100,7 +102,7 @@ class SpeechToText:
             text = ""
         return text, info
 
-    def transcribe(self, audio, language=None, use_prompt=True):
+    def transcribe(self, audio, language=None, use_prompt=True, prompt=None):
         """audio: path or array (16 kHz mono). language: None | 'ar' | 'en'.
         Returns (text, lang)."""
         import os
@@ -118,16 +120,16 @@ class SpeechToText:
 
         # 2) language given by the caller or env
         if language in ALLOWED_LANGS:
-            text, _ = self._decode(audio, language, use_prompt)
+            text, _ = self._decode(audio, language, use_prompt, custom_prompt=prompt)
             return text, language
 
         # 3) auto-detect, then restrict to ar/en
-        text, info = self._decode(audio, None, use_prompt)
+        text, info = self._decode(audio, None, use_prompt, custom_prompt=prompt)
         lang = info.language
         if lang not in ALLOWED_LANGS:
             probs = dict(info.all_language_probs or [])
             lang = max(ALLOWED_LANGS, key=lambda l: probs.get(l, 0.0))
-            text, _ = self._decode(audio, lang, use_prompt)
+            text, _ = self._decode(audio, lang, use_prompt, custom_prompt=prompt)
         return text, lang
 
 

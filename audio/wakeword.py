@@ -150,7 +150,7 @@ def _is_wake_word(text: str) -> bool:
         return False
     norm = text.lower().strip()
     clean = re.sub(r"[^\w\s\u0621-\u064A]", " ", norm)
-    tokens = set(clean.split())
+    words = clean.split()
 
     # 1. Custom wake word from env
     custom = os.environ.get("SOUNDOS_WAKEWORD", "").lower().strip()
@@ -162,28 +162,35 @@ def _is_wake_word(text: str) -> bool:
     if model_env and model_env in clean:
         return True
 
-    # 2. Individual name tokens (English + Arabic)
-    name_tokens = {"dave", "dev", "david", "dafe", "deaf", "day", "ديف", "دايف", "ديب", "ديفيد"}
-    if tokens & name_tokens:
+    # 2. Individual name tokens (English + Arabic speech variants of Dave)
+    name_tokens = {
+        "dave", "daves", "dev", "david", "dafe", "deaf", "day", "they", "theyve", "date",
+        "ديف", "دايف", "ديب", "ديفيد", "ضيف", "الديف", "ديڤ", "داف", "ديفز"
+    }
+    if any(w in name_tokens for w in words):
         return True
 
-    # 3. Phrasal triggers
+    # 3. Substring match for 'dav' or 'ديف'
+    if any("dav" in w or "ديف" in w or "ديڤ" in w for w in words):
+        return True
+
+    # 4. Phrasal triggers
     triggers = [
-        "dave", "hey dave", "hay dave", "hi dave", "hello dave", "ok dave",
+        "dave", "hey dave", "hay dave", "hi dave", "hello dave", "ok dave", "ya dave",
         "dev", "hey dev", "hay dev", "hi dev",
         "david", "hey david", "hay david", "hi david",
         "day", "hey day", "hay day",
         "jarvis", "hey jarvis", "hi jarvis",
         "sound os", "soundos",
-        "ديف", "دايف", "هاي ديف", "هي ديف", "يا ديف", "الو ديف"
+        "ديف", "دايف", "هاي ديف", "هي ديف", "يا ديف", "الو ديف", "ياعم ديف", "يا عم ديف"
     ]
     if any(t in clean for t in triggers):
         return True
 
-    # 4. Regex pattern matching (prefix + name)
-    if re.search(r"\b(hey|hay|hi|ay|hello|ok)?\s*(dave|dev|david|dafe|day)\b", clean):
+    # 5. Regex pattern matching (prefix + name)
+    if re.search(r"\b(hey|hay|hi|ay|hello|ok|ya|yah)?\s*(dave|dev|david|dafe|day|date|deaf)\b", clean):
         return True
-    if re.search(r"\b(هاي|هي|يا|الو)?\s*(ديف|دايف|ديب)\b", clean):
+    if re.search(r"\b(هاي|هي|يا|الو|ياعم|يا عم)?\s*(ديف|دايف|ديب|ضيف|ديڤ)\b", clean):
         return True
 
     return False
@@ -218,9 +225,9 @@ def _wait_phrase_or_enter() -> bool:
     """Wake on 'Hey Dave' / 'Hi Dave', combined wake+command, or direct command."""
     global _pending_command
     try:
-        from stt import transcribe
+        from stt import transcribe_wake, transcribe
     except Exception:
-        transcribe = None
+        transcribe_wake, transcribe = None, None
 
     # Fallback to pure energy mode if requested or if stt unavailable
     if transcribe is None or os.environ.get("SOUNDOS_WAKE_ENERGY_ONLY") == "1":
@@ -243,7 +250,8 @@ def _wait_phrase_or_enter() -> bool:
             continue
 
         try:
-            res = transcribe(path)
+            # Primed transcription with 'Hey Dave' prompt
+            res = transcribe_wake(path) if transcribe_wake else transcribe(path)
             text = res.get("text", "") if isinstance(res, dict) else ""
             if text:
                 from intent_parser import parse

@@ -56,4 +56,18 @@ def transcribe(wav_path: str, lang_hint: str | None = None) -> dict:
         }
 
 
-__all__ = ["transcribe", "SpeechToText", "PROMPTS", "SAMPLE_RATE", "get_model"]
+def transcribe_wake(wav_path: str) -> dict:
+    """Specialized ultra-fast wake phrase transcriber with 'Hey Dave' prompt."""
+    try:
+        model = get_model()
+        text, lang = model.transcribe(
+            wav_path,
+            language="en",
+            prompt="Hey Dave, Hi Dave, Dave, ديف, هاي ديف.",
+        )
+        return {"text": text, "lang": lang, "confidence": 1.0 if text else 0.0}
+    except Exception:
+        return transcribe(wav_path, lang_hint="en")
+
+
+__all__ = ["transcribe", "transcribe_wake", "SpeechToText", "PROMPTS", "SAMPLE_RATE", "get_model"]
