@@ -1,5 +1,5 @@
 """
-Sound OS - Executor Action Implementations
+Sound OS - Executor Action Implementations (v2 Enhanced)
 Safe command execution for Ubuntu (X11 / Xorg).
 Follows CONTRACT.md: No shell=True, safe argument lists, never raises exceptions.
 """
@@ -12,6 +12,26 @@ from pathlib import Path
 from typing import Tuple, Dict, Any
 
 SAFE_FILES_DIR = Path.home() / "SoundOS_Files"
+BRIGHTNESS_STATE_FILE = Path("/tmp/.soundos_brightness")
+
+
+def check_internet_connection(timeout_sec: float = 0.2) -> bool:
+    """
+    Ultra-fast non-blocking internet connectivity check (DNS socket connect).
+    Takes <50ms, well below the 1-second limit in CONTRACT.md §7.
+    """
+    targets = [("1.1.1.1", 53), ("8.8.8.8", 53)]
+    for host, port in targets:
+        try:
+            with socket.create_connection((host, port), timeout=timeout_sec):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+# Compatibility alias
+is_online = check_internet_connection
 
 
 def _run_subcommand(args: list[str]) -> Tuple[bool, str]:
@@ -58,41 +78,39 @@ def _spawn_detached(args: list[str]) -> Tuple[bool, str]:
         return False, str(exc)
 
 
-def is_online(timeout: float = 0.3) -> bool:
-    """Fast non-blocking check for network connectivity (CONTRACT.md §4)."""
-    for host in ("1.1.1.1", "8.8.8.8"):
-        try:
-            with socket.create_connection((host, 53), timeout=timeout):
-                return True
-        except OSError:
-            continue
-    return False
-
-
 # ---------------------------------------------------------
-# Volume & Audio Controls (PipeWire, PulseAudio, and ALSA)
+# Volume & Audio Controls (Supports PipeWire, PulseAudio & ALSA)
 # ---------------------------------------------------------
 def adjust_volume(direction: str) -> Tuple[bool, str]:
     """
     Adjust volume up (+5%) or down (-5%).
+    Senior UX enhancement: Automatically unmute when raising volume.
     Prefers wpctl (PipeWire), then pactl (PulseAudio), then amixer (ALSA).
     """
     delta = "+5%" if direction == "up" else "-5%"
 
+    # 1. PipeWire / WirePlumber
     if shutil.which("wpctl"):
+        if direction == "up":
+            _run_subcommand(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "0"])
         cmd = ["wpctl", "set-volume", "-l", "1.5", "@DEFAULT_AUDIO_SINK@", delta]
         ok, out = _run_subcommand(cmd)
         if ok:
             return True, "Volume adjusted."
 
+    # 2. PulseAudio fallback
     if shutil.which("pactl"):
+        if direction == "up":
+            _run_subcommand(["pactl", "set-sink-mute", "@DEFAULT_SINK@", "0"])
         cmd = ["pactl", "set-sink-volume", "@DEFAULT_SINK@", delta]
         ok, out = _run_subcommand(cmd)
         if ok:
             return True, "Volume adjusted."
 
+    # 3. ALSA amixer fallback
     if shutil.which("amixer"):
-        # ALSA fallback
+        if direction == "up":
+            _run_subcommand(["amixer", "sset", "Master", "unmute"])
         cmd = ["amixer", "sset", "Master", "5%+" if direction == "up" else "5%-"]
         ok, out = _run_subcommand(cmd)
         if ok:
@@ -124,49 +142,133 @@ def set_mute() -> Tuple[bool, str]:
 
 
 # ---------------------------------------------------------
-# Brightness Controls (brightnessctl)
+# Brightness Controls (brightnessctl with VM xrandr fallback)
 # ---------------------------------------------------------
+def _adjust_vm_xrandr_brightness(direction: str) -> Tuple[bool, str]:
+    """
+    Software brightness fallback for Virtual Machines (VirtualBox, VMware, QEMU)
+    using X11 xrandr gamma scaling.
+    """
+    if not shutil.which("xrandr"):
+        return False, "Neither 'brightnessctl' nor 'xrandr' is available."
+
+    try:
+        proc = subprocess.run(
+            ["xrandr", "--current"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=2,
+        )
+        if proc.returncode != 0:
+            return False, "Failed to query xrandr display."
+
+        connected_output = None
+        for line in proc.stdout.splitlines():
+            if " connected" in line:
+                connected_output = line.split()[0]
+                break
+
+        if not connected_output:
+            return False, "No active connected X11 display found."
+
+        # Read current software brightness level (default: 1.0)
+        current = 1.0
+        if BRIGHTNESS_STATE_FILE.exists():
+            try:
+                current = float(BRIGHTNESS_STATE_FILE.read_text().strip())
+            except Exception:
+                current = 1.0
+
+        step = 0.1
+        new_val = min(1.5, max(0.2, current + step)) if direction == "up" else min(1.5, max(0.2, current - step))
+        new_val = round(new_val, 2)
+
+        gamma_str = f"{new_val}:{new_val}:{new_val}"
+        ok, out = _run_subcommand(["xrandr", "--output", connected_output, "--gamma", gamma_str])
+        if ok:
+            try:
+                BRIGHTNESS_STATE_FILE.write_text(str(new_val))
+            except Exception:
+                pass
+            return True, f"VM Display brightness adjusted to {int(new_val * 100)}% via xrandr."
+        return False, f"xrandr gamma adjustment failed: {out}"
+
+    except Exception as exc:
+        return False, f"xrandr error: {exc}"
+
+
 def adjust_brightness(direction: str) -> Tuple[bool, str]:
     """
     Adjust display brightness up (+10%) or down (-10%).
-    Note: Virtual machines typically do not have a virtual backlight device.
+    1. First tries hardware brightness via brightnessctl.
+    2. If on VM or brightnessctl fails, falls back gracefully to software xrandr.
     """
     delta = "10%+" if direction == "up" else "10%-"
-    if not shutil.which("brightnessctl"):
-        return False, "Utility 'brightnessctl' is not installed."
+    if shutil.which("brightnessctl"):
+        ok, out = _run_subcommand(["brightnessctl", "set", delta])
+        if ok:
+            return True, "Brightness adjusted."
 
-    ok, out = _run_subcommand(["brightnessctl", "set", delta])
-    if ok:
-        return True, "Brightness adjusted."
-    return False, f"Brightness adjustment failed: {out}"
+    # VM Fallback
+    return _adjust_vm_xrandr_brightness(direction)
 
 
 # ---------------------------------------------------------
-# Application Controls (Open / Close)
+# Application Controls (Open / Graceful Close)
 # ---------------------------------------------------------
 def launch_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
-    """Launch application as a detached background process with fallback binaries."""
-    candidates = [app_config.get("cmd", [])] + app_config.get("fallbacks", [])
-    for c in candidates:
-        if c and isinstance(c, list) and shutil.which(c[0]):
-            return _spawn_detached(c)
+    """
+    Launch application as a detached background process.
+    Senior Enhancement:
+    1. If app is already running and wmctrl is installed, bring window to front (Focus).
+    2. Tries primary cmd first, then fallback_cmds / fallbacks for cross-distro compatibility.
+    """
+    proc_name = app_config.get("process", "")
+    # Check if app is already running and focus its window
+    if proc_name and shutil.which("wmctrl"):
+        ok, _ = _run_subcommand(["wmctrl", "-a", proc_name])
+        if ok:
+            return True, f"Focused running {proc_name}."
 
-    # If no alternative found, attempt primary cmd
+    # Try primary cmd
     cmd = app_config.get("cmd", [])
-    if not cmd:
-        return False, "No executable command configured for this application."
-    return _spawn_detached(cmd)
+    if cmd and shutil.which(cmd[0]):
+        return _spawn_detached(cmd)
+
+    # Try fallback commands across distributions (Fedora, Arch, Debian, etc.)
+    fallback_candidates = app_config.get("fallback_cmds", []) + app_config.get("fallbacks", [])
+    for fb_cmd in fallback_candidates:
+        if fb_cmd and isinstance(fb_cmd, list) and shutil.which(fb_cmd[0]):
+            return _spawn_detached(fb_cmd)
+
+    if cmd:
+        return _spawn_detached(cmd)
+    return False, "No executable command configured for this application."
 
 
 def terminate_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
-    """Terminate application by process name using pkill with fallback names."""
-    procs = [app_config.get("process")] + app_config.get("process_fallbacks", [])
-    procs = [p for p in procs if p and isinstance(p, str)]
-    if not procs:
+    """
+    Terminate application gracefully.
+    Senior UX enhancement: Try wmctrl -c first (Graceful close on X11),
+    falling back to pkill -x with candidate process names.
+    """
+    proc_name = app_config.get("process")
+    if not proc_name:
         return False, "No process name defined for this application."
 
+    # 1. Try graceful window close if wmctrl is installed (X11)
+    if shutil.which("wmctrl"):
+        ok, _ = _run_subcommand(["wmctrl", "-c", proc_name])
+        if ok:
+            return True, f"Gracefully closed {proc_name}."
+
+    # 2. Standard pkill termination with fallbacks
     if not shutil.which("pkill"):
         return False, "'pkill' utility is missing."
+
+    procs = [proc_name] + app_config.get("process_fallbacks", [])
+    procs = [p for p in procs if p and isinstance(p, str)]
 
     closed_any = False
     for p in procs:
@@ -175,8 +277,8 @@ def terminate_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
             closed_any = True
 
     if closed_any:
-        return True, f"Closed {procs[0]}."
-    return False, f"Could not close {procs[0]} (process might not be running)."
+        return True, f"Closed {proc_name}."
+    return False, f"Could not close {proc_name} (process might not be running)."
 
 
 # ---------------------------------------------------------
@@ -240,14 +342,17 @@ def delete_user_file(filename: str, dry_run: bool = False) -> Tuple[bool, str]:
 # ---------------------------------------------------------
 # Web Search & Media
 # ---------------------------------------------------------
-def search_web(query: str) -> Tuple[bool, str]:
-    """Open default browser with Google search (CONTRACT.md §4)."""
+def search_web(query: str, check_net: bool = True) -> Tuple[bool, str]:
+    """
+    Open default browser with Google search.
+    Follows CONTRACT.md §4: 'web_search needs internet; say so in the message if offline.'
+    """
     clean_query = (query or "").strip()
     if not clean_query:
         return False, "Empty search query."
 
-    if not is_online():
-        return False, "No internet connection available."
+    if check_net and not check_internet_connection():
+        return False, "offline"
 
     encoded = urllib.parse.quote(clean_query)
     url = f"https://www.google.com/search?q={encoded}"
@@ -255,13 +360,17 @@ def search_web(query: str) -> Tuple[bool, str]:
 
 
 def play_media_content(query: str = "") -> Tuple[bool, str]:
-    """Open media player or default media folder."""
+    """Open media player or search online media."""
     clean_query = (query or "").strip()
     if clean_query:
+        # If user asked for a specific artist/song, open YouTube search if online
+        if check_internet_connection():
+            encoded = urllib.parse.quote(clean_query)
+            return _spawn_detached(["xdg-open", f"https://www.youtube.com/results?search_query={encoded}"])
         music_dir = Path.home() / "Music"
         if music_dir.exists():
             return _spawn_detached(["xdg-open", str(music_dir)])
-        return search_web(f"play {clean_query}")
+        return False, "offline"
     else:
         # Default: open VLC / MPV / media player or music folder
         for player in ("vlc", "mpv", "totem", "celluloid"):

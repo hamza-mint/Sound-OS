@@ -196,8 +196,8 @@ def _handle_web_search(params: dict, lang: str, dry_run: bool) -> Tuple[bool, st
     if dry_run:
         return True, f"[DRY-RUN] Searching web for: {query}" if lang == "en" else f"[تجربة] بحث ويب عن: {query}"
     ok, err = actions.search_web(query)
-    if not ok and "No internet" in err:
-        msg = "No internet connection available." if lang == "en" else "لا يوجد اتصال بالإنترنت لإجراء البحث."
+    if not ok and (err == "offline" or "No internet" in err):
+        msg = "No internet connection available." if lang == "en" else "لا يوجد اتصال بالإنترنت حالياً."
         return False, msg
     msg = (f"Searching for '{query}'." if ok else f"Search error: {err}") if lang == "en" else (f"جاري البحث عن '{query}'." if ok else f"خطأ في البحث: {err}")
     return ok, msg
@@ -208,6 +208,9 @@ def _handle_play_media(params: dict, lang: str, dry_run: bool) -> Tuple[bool, st
     if dry_run:
         return True, "[DRY-RUN] Playing media." if lang == "en" else "[تجربة] تشغيل الوسائط."
     ok, err = actions.play_media_content(query)
+    if not ok and (err == "offline" or "No internet" in err):
+        msg = "No internet connection to stream media." if lang == "en" else "لا يوجد اتصال بالإنترنت لتشغيل الوسائط."
+        return False, msg
     msg = ("Playing media." if ok else f"Media error: {err}") if lang == "en" else ("جاري تشغيل الوسائط." if ok else f"خطأ في الوسائط: {err}")
     return ok, msg
 

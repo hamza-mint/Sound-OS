@@ -233,7 +233,7 @@ def test_web_search_offline(monkeypatch):
     """When offline and not in dry-run, web search must notify user of offline status (CONTRACT.md §4)."""
     monkeypatch.delenv("SOUNDOS_DRY_RUN", raising=False)
     from executor import actions
-    monkeypatch.setattr(actions, "is_online", lambda: False)
+    monkeypatch.setattr(actions, "check_internet_connection", lambda: False)
 
     res = execute({"intent": "web_search", "params": {"query": "python"}, "lang": "en"})
     _assert_contract(res)
@@ -245,3 +245,32 @@ def test_web_search_offline(monkeypatch):
     assert res_ar["success"] is False
     assert "الإنترنت" in res_ar["message"]
 
+
+# ---------------------------------------------------------------------------
+# 11. v2 Enhancements (Offline handling, Actions resilience)
+# ---------------------------------------------------------------------------
+def test_internet_check_speed():
+    from executor.actions import check_internet_connection
+    t0 = time.monotonic()
+    online = check_internet_connection(timeout_sec=0.1)
+    elapsed = time.monotonic() - t0
+    assert isinstance(online, bool)
+    assert elapsed < 0.25, f"Internet check too slow: {elapsed:.3f}s"
+
+
+def test_web_search_offline_graceful():
+    os.environ["SOUNDOS_DRY_RUN"] = "0"
+    from unittest.mock import patch
+    with patch("executor.actions.check_internet_connection", return_value=False):
+        res = execute({"intent": "web_search", "params": {"query": "test"}, "lang": "ar"})
+        assert res["success"] is False
+        assert "إنترنت" in res["message"]
+
+
+def test_play_media_offline_graceful():
+    os.environ["SOUNDOS_DRY_RUN"] = "0"
+    from unittest.mock import patch
+    with patch("executor.actions.check_internet_connection", return_value=False):
+        res = execute({"intent": "play_media", "params": {"query": "amr diab"}, "lang": "en"})
+        assert res["success"] is False
+        assert "internet" in res["message"].lower()
