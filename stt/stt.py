@@ -21,11 +21,10 @@ from faster_whisper import WhisperModel
 SAMPLE_RATE = 16000
 ALLOWED_LANGS = ("ar", "en")     # the only languages the project supports
 
-# ONE short sentence per language. A long list of command words caused
-# repetition loops on silence during our tests.
+# ONE concise domain-rich prompt per language to guide vocabulary and punctuation
 PROMPTS = {
-    "ar": "افتح المتصفح",
-    "en": "Open the browser.",
+    "ar": "افتح المتصفح، علي الصوت، وطي الصوت، اكتم، شغل موسيقى، افتح الآلة الحاسبة، افتح الملفات، اقفل، ابحث عن.",
+    "en": "Open the browser, turn up volume, lower volume, mute, play music, open calculator, open files, close, search.",
 }
 
 SILENCE_RMS = 0.003    # gate for (almost) digital silence; VAD handles real noise
@@ -91,7 +90,7 @@ class SpeechToText:
             condition_on_previous_text=False,   # less repetition
             vad_filter=True,                    # drop silence/noise before decoding
             vad_parameters={"min_silence_duration_ms": 300},
-            max_new_tokens=24,                  # commands are short
+            max_new_tokens=96,                  # support compound/longer commands without truncation
         )
         # `segments` is a generator: the real decoding happens in this line
         text = " ".join(s.text.strip() for s in segments).strip()
@@ -102,13 +101,20 @@ class SpeechToText:
     def transcribe(self, audio, language=None, use_prompt=True):
         """audio: path or array (16 kHz mono). language: None | 'ar' | 'en'.
         Returns (text, lang)."""
+        import os
         audio = self._load(audio)
 
         # 1) too short / too quiet -> do not even run the model
         if len(audio) < MIN_SECONDS * SAMPLE_RATE or self.rms(audio) < SILENCE_RMS:
             return "", language or "en"
 
-        # 2) language given by the caller
+        # 1b) check environment language override if caller did not specify
+        if not language:
+            env_lang = os.environ.get("SOUNDOS_LANG", "").lower().strip()
+            if env_lang in ALLOWED_LANGS:
+                language = env_lang
+
+        # 2) language given by the caller or env
         if language in ALLOWED_LANGS:
             text, _ = self._decode(audio, language, use_prompt)
             return text, language

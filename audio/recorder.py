@@ -34,11 +34,11 @@ SAMPLE_WIDTH = 2             # bytes -> 16-bit PCM
 BLOCK_MS = 30                # VAD analysis window
 BLOCK_SAMPLES = SAMPLE_RATE * BLOCK_MS // 1000   # 480 samples
 
-SILENCE_SECONDS = 1.0        # stop after this much silence once speech began
+SILENCE_SECONDS = 0.65        # stop after ~650ms of silence once speech began (fast response)
 NO_SPEECH_TIMEOUT = 4.0      # give up if nobody speaks within this time
-PREROLL_BLOCKS = 10          # ~300 ms kept from before speech was detected
-TRAILING_KEEP_BLOCKS = 10    # ~300 ms of trailing silence kept in the file
-START_BLOCKS = 3             # consecutive loud blocks required to start speech
+PREROLL_BLOCKS = 14          # ~420 ms kept from before speech was detected (never clip first syllable)
+TRAILING_KEEP_BLOCKS = 8     # ~240 ms of trailing silence kept in the file
+START_BLOCKS = 2             # consecutive loud blocks required to start speech (fast trigger)
 
 
 def _log(msg: str) -> None:
@@ -225,7 +225,7 @@ class MicStream:
 # --------------------------------------------------------------------------- #
 def record_utterance(
     max_seconds: float = 6.0,
-    silence_seconds: float = SILENCE_SECONDS,
+    silence_seconds: Optional[float] = None,
 ) -> str:
     """
     Record one spoken utterance and save it as a 16 kHz mono 16-bit WAV.
@@ -235,10 +235,21 @@ def record_utterance(
     absolute path of a temporary WAV file. Never raises.
     """
     try:
+        if silence_seconds is None:
+            silence_seconds = _env_float("SOUNDOS_SILENCE_SECONDS", SILENCE_SECONDS)
         return _record_utterance(float(max_seconds), float(silence_seconds))
     except Exception as exc:
         _log(f"record_utterance error: {exc}")
         return _silent_wav()
+
+
+def record_wake_clip(max_seconds: float = 1.6, silence_seconds: float = 0.35) -> str:
+    """Ultra-fast recorder for wake-phrase detection (short window, fast trigger)."""
+    try:
+        return _record_utterance(float(max_seconds), float(silence_seconds), is_wake=True)
+    except Exception as exc:
+        _log(f"record_wake_clip error: {exc}")
+        return ""
 
 
 def _silent_wav(seconds: float = 0.5) -> str:
@@ -251,14 +262,14 @@ def _silent_wav(seconds: float = 0.5) -> str:
         return ""
 
 
-def _record_utterance(max_seconds: float, silence_seconds: float) -> str:
+def _record_utterance(max_seconds: float, silence_seconds: float, is_wake: bool = False) -> str:
     if max_seconds <= 0:
-        return _silent_wav()
+        return "" if is_wake else _silent_wav()
 
     max_blocks = max(1, int(max_seconds * 1000 / BLOCK_MS))
     silence_blocks = max(1, int(silence_seconds * 1000 / BLOCK_MS))
     no_speech_blocks = int(min(NO_SPEECH_TIMEOUT, max_seconds) * 1000 / BLOCK_MS)
-    calib_blocks = min(10, max_blocks)                       # ~300 ms
+    calib_blocks = min(4 if is_wake else 8, max_blocks)
 
     preroll: deque = deque(maxlen=PREROLL_BLOCKS)
     frames: List[bytes] = []
@@ -272,7 +283,7 @@ def _record_utterance(max_seconds: float, silence_seconds: float) -> str:
     mic = MicStream(BLOCK_SAMPLES)
     if not mic.open():
         _log("no working microphone backend (install sounddevice or alsa-utils)")
-        return _silent_wav()
+        return "" if is_wake else _silent_wav()
 
     try:
         for i in range(max_blocks):
@@ -295,7 +306,7 @@ def _record_utterance(max_seconds: float, silence_seconds: float) -> str:
             if not started:
                 preroll.append(block)
                 loud_run = loud_run + 1 if loud else 0
-                if loud_run >= START_BLOCKS:
+                if loud_run >= (1 if is_wake else START_BLOCKS):
                     started = True
                     frames = list(preroll)
                     silent_run = 0
@@ -313,7 +324,9 @@ def _record_utterance(max_seconds: float, silence_seconds: float) -> str:
         mic.close()
 
     if not started:
-        frames = list(preroll)           # nothing heard: keep short ambient clip
+        if is_wake:
+            return ""                                        # no speech during wake listening: skip STT entirely
+        frames = list(preroll)                               # keep short ambient clip for normal commands
     elif stopped_on_silence:
         trim = silent_run - TRAILING_KEEP_BLOCKS
         if trim > 0:
@@ -322,5 +335,5 @@ def _record_utterance(max_seconds: float, silence_seconds: float) -> str:
     pcm = b"".join(frames) or (b"\x00\x00" * BLOCK_SAMPLES)
     path = _new_wav_path()
     if not write_wav(path, pcm):
-        return _silent_wav()
+        return "" if is_wake else _silent_wav()
     return path

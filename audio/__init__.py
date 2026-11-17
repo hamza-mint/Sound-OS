@@ -41,4 +41,17 @@ def record_utterance(max_seconds: float = 6.0) -> str:
         return ""
 
 
-__all__ = ["wait_for_wake_word", "record_utterance"]
+def record_wake_clip(max_seconds: float = 1.6, silence_seconds: float = 0.35) -> str:
+    """Fast clip recorder optimized for wake phrase detection. Never raises."""
+    try:
+        from .recorder import record_wake_clip as _impl
+        return _impl(max_seconds, silence_seconds)
+    except Exception as exc:
+        try:
+            print(f"[audio] record_wake_clip error: {exc}", file=sys.stderr)
+        except Exception:
+            pass
+        return ""
+
+
+__all__ = ["wait_for_wake_word", "record_utterance", "record_wake_clip"]

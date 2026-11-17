@@ -94,11 +94,13 @@ def _load_oww():
         try:
             _oww_model = build()
         except Exception:
-            # Pretrained models may need a one-time download (needs internet).
-            if not os.path.isfile(spec):
+            # Try downloading if spec is a named model and download helper is available
+            try:
                 from openwakeword.utils import download_models
                 download_models([spec])
-            _oww_model = build()
+                _oww_model = build()
+            except Exception:
+                _oww_model = None
         _log(f"openwakeword model loaded: {spec}")
     except Exception as exc:
         _log(f"openwakeword unavailable ({exc}); using fallback")
@@ -143,26 +145,48 @@ def _wait_openwakeword(model) -> bool:
 # Wake phrase detection via STT + Energy/Enter fallback
 # --------------------------------------------------------------------------- #
 def _is_wake_word(text: str) -> bool:
-    """Check if recognized speech contains wake word trigger."""
+    """Check if recognized speech contains wake word trigger with robust phonetic & dialect support."""
     if not text:
         return False
-    norm = re.sub(r"[^\w\s]", "", text.lower()).strip()
+    norm = text.lower().strip()
+    clean = re.sub(r"[^\w\s\u0621-\u064A]", " ", norm)
+    tokens = set(clean.split())
+
+    # 1. Custom wake word from env
     custom = os.environ.get("SOUNDOS_WAKEWORD", "").lower().strip()
-    if custom and custom in norm:
+    if custom and custom in clean:
         return True
 
-    # Check model name env (e.g. SOUNDOS_WAKEWORD_MODEL=hey_Dave)
+    # Check model name env (e.g. SOUNDOS_WAKEWORD_MODEL=hey_dave)
     model_env = os.environ.get("SOUNDOS_WAKEWORD_MODEL", "").lower().replace("_", " ").strip()
-    if model_env and model_env in norm:
+    if model_env and model_env in clean:
         return True
 
+    # 2. Individual name tokens (English + Arabic)
+    name_tokens = {"dave", "dev", "david", "dafe", "deaf", "day", "ديف", "دايف", "ديب", "ديفيد"}
+    if tokens & name_tokens:
+        return True
+
+    # 3. Phrasal triggers
     triggers = [
-        "dave", "hey dave", "hi dave",
-        "dev", "hey dev", "hi dev",
-        "jarvis", "hey jarvis",
-        "sound os", "soundos"
+        "dave", "hey dave", "hay dave", "hi dave", "hello dave", "ok dave",
+        "dev", "hey dev", "hay dev", "hi dev",
+        "david", "hey david", "hay david", "hi david",
+        "day", "hey day", "hay day",
+        "jarvis", "hey jarvis", "hi jarvis",
+        "sound os", "soundos",
+        "ديف", "دايف", "هاي ديف", "هي ديف", "يا ديف", "الو ديف"
     ]
-    return any(t in norm for t in triggers)
+    if any(t in clean for t in triggers):
+        return True
+
+    # 4. Regex pattern matching (prefix + name)
+    if re.search(r"\b(hey|hay|hi|ay|hello|ok)?\s*(dave|dev|david|dafe|day)\b", clean):
+        return True
+    if re.search(r"\b(هاي|هي|يا|الو)?\s*(ديف|دايف|ديب)\b", clean):
+        return True
+
+    return False
 
 
 def _wait_phrase_or_enter() -> bool:
@@ -177,13 +201,15 @@ def _wait_phrase_or_enter() -> bool:
         return _wait_energy_or_enter()
 
     _log("Listening... Say 'Hey Dave' or 'Hi Dave' (or press Enter)")
+    from .recorder import record_wake_clip
+
     while True:
         if _enter_pressed():
             _log("Wake bypassed via Enter key.")
             return True
 
-        # Capture a short candidate speech clip
-        path = record_utterance(max_seconds=2.5, silence_seconds=0.7)
+        # Capture a short, fast-trigger candidate speech clip
+        path = record_wake_clip(max_seconds=1.6, silence_seconds=0.35)
         if _enter_pressed():
             return True
 
@@ -191,7 +217,8 @@ def _wait_phrase_or_enter() -> bool:
             continue
 
         try:
-            res = transcribe(path)
+            # Force English language hint for fast decoding without 99-language scanning
+            res = transcribe(path, lang_hint="en")
             text = res.get("text", "") if isinstance(res, dict) else ""
             if text:
                 if _is_wake_word(text):

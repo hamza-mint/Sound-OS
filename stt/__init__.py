@@ -4,6 +4,7 @@ Exposes:
     transcribe(wav_path, lang_hint=None) -> dict (matches CONTRACT.md)
     SpeechToText (Mahmoud's core Whisper class)
 """
+import os
 from .stt import SpeechToText, SAMPLE_RATE, PROMPTS
 
 _model_instance = None
@@ -13,7 +14,8 @@ def get_model(model_size: str = "tiny", cpu_threads: int = 0) -> SpeechToText:
     """Singleton getter for the Whisper model (loaded once)."""
     global _model_instance
     if _model_instance is None:
-        _model_instance = SpeechToText(model_size=model_size, cpu_threads=cpu_threads)
+        effective_size = os.environ.get("SOUNDOS_STT_MODEL", model_size)
+        _model_instance = SpeechToText(model_size=effective_size, cpu_threads=cpu_threads)
     return _model_instance
 
 
