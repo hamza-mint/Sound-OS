@@ -1,7 +1,9 @@
-# Sound OS - Project Requirements
-pytest>=7
+# Sound OS - Core Requirements
+pytest>=7.0.0
 faster-whisper>=1.0.0
+sounddevice>=0.4.6
 soundfile>=0.12.0
 numpy>=1.24.0
-pillow>=13.0.0
+scipy>=1.10.0
+pillow>=10.0.0
 piper-tts

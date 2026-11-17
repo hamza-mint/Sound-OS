@@ -26,7 +26,9 @@ import time
 import wave
 from array import array
 from collections import deque
-from typing import List, Optional
+from typing import List, Optional, Any
+
+import numpy as np
 
 SAMPLE_RATE = 16000          # Hz  (Whisper requirement)
 CHANNELS = 1                 # mono
@@ -108,18 +110,30 @@ def _new_wav_path() -> str:
 # --------------------------------------------------------------------------- #
 class MicStream:
     """
-    Blocking microphone reader yielding fixed-size blocks of int16 PCM bytes.
+    Blocking microphone reader yielding fixed-size blocks of int16 PCM bytes (16 kHz mono).
 
         with MicStream(480) as mic:
             block = mic.read()      # bytes, or None on failure
+
+    Automatically handles laptop hardware constraints:
+      - Adapts when hardware rejects 16 kHz mono (common on Realtek/AMD/Intel laptop mics).
+      - Opens at hardware native rate (e.g. 44.1 kHz or 48 kHz stereo) and downsamples
+        on-the-fly to 16 kHz 16-bit mono in microseconds.
+      - Probes all available audio input devices (virtual and hardware) if default fails.
+      - Falls back to `arecord` CLI if PortAudio/sounddevice is unavailable.
     """
 
     def __init__(self, block_samples: int = BLOCK_SAMPLES):
         self.block_samples = block_samples
         self.block_bytes = block_samples * SAMPLE_WIDTH
         self.backend = ""
+        self.device_name = ""
         self._sd_stream = None
         self._proc: Optional[subprocess.Popen] = None
+        self._downsample = False
+        self._native_sr = SAMPLE_RATE
+        self._native_channels = CHANNELS
+        self._native_block_samples = block_samples
 
     # -- context manager ---------------------------------------------------- #
     def __enter__(self) -> "MicStream":
@@ -149,37 +163,162 @@ class MicStream:
         self.backend = ""
         return False
 
-    def _open_sounddevice(self) -> bool:
-        import sounddevice as sd  # lazy: module may not be installed
+    def _find_sd_candidate_devices(self, sd) -> List[Any]:
+        """Find and prioritize available sounddevice input devices."""
+        candidates = []
+        user_dev = os.environ.get("SOUNDOS_MIC_DEVICE")
 
-        device = os.environ.get("SOUNDOS_MIC_DEVICE") or None
-        if device is not None and device.isdigit():
-            device = int(device)
-        stream = sd.RawInputStream(
-            samplerate=SAMPLE_RATE,
-            channels=CHANNELS,
-            dtype="int16",
-            blocksize=self.block_samples,
-            device=device,
-        )
-        stream.start()
-        self._sd_stream = stream
-        return True
+        # 1. User-specified device from env
+        if user_dev is not None and user_dev.strip():
+            user_dev = user_dev.strip()
+            if user_dev.isdigit():
+                candidates.append(int(user_dev))
+            else:
+                # Substring match on device name
+                try:
+                    for idx, dev in enumerate(sd.query_devices()):
+                        if user_dev.lower() in dev.get("name", "").lower():
+                            candidates.append(idx)
+                            break
+                except Exception:
+                    pass
+
+        # 2. System default device (if valid input)
+        try:
+            default_in = sd.default.device[0]
+            if default_in is not None and default_in >= 0:
+                dev_info = sd.query_devices(default_in)
+                if dev_info.get("max_input_channels", 0) > 0:
+                    candidates.append(default_in)
+        except Exception:
+            pass
+
+        # 3. Enumerate all audio input devices
+        virtual_devs = []
+        hw_devs = []
+        try:
+            for idx, dev in enumerate(sd.query_devices()):
+                if dev.get("max_input_channels", 0) > 0:
+                    name = dev.get("name", "").lower()
+                    # Virtual sound servers (pipewire, pulse, default) prioritize cleanly
+                    if any(v in name for v in ("pipewire", "pulse", "default")):
+                        virtual_devs.append(idx)
+                    else:
+                        hw_devs.append(idx)
+        except Exception:
+            pass
+
+        # Order: user preference -> system default -> virtual servers -> hardware devices -> None (default)
+        all_ordered = candidates + virtual_devs + hw_devs + [None]
+        seen = set()
+        deduped = []
+        for d in all_ordered:
+            if d not in seen:
+                seen.add(d)
+                deduped.append(d)
+        return deduped
+
+    def _open_sounddevice(self) -> bool:
+        try:
+            import sounddevice as sd
+        except ImportError:
+            return False
+
+        candidate_devices = self._find_sd_candidate_devices(sd)
+
+        for dev in candidate_devices:
+            # Query info about this device if possible
+            dev_info = {}
+            if dev is not None:
+                try:
+                    dev_info = sd.query_devices(dev)
+                    if dev_info.get("max_input_channels", 0) <= 0:
+                        continue
+                except Exception:
+                    pass
+
+            dev_name = dev_info.get("name", f"device #{dev}" if dev is not None else "default")
+            native_sr = int(dev_info.get("default_samplerate", 44100))
+            max_ch = int(dev_info.get("max_input_channels", 2))
+
+            # Attempt A: Direct 16000 Hz Mono (optimal zero-overhead path)
+            try:
+                stream = sd.RawInputStream(
+                    samplerate=SAMPLE_RATE,
+                    channels=CHANNELS,
+                    dtype="int16",
+                    blocksize=self.block_samples,
+                    device=dev,
+                )
+                stream.start()
+                self._sd_stream = stream
+                self._downsample = False
+                self._native_sr = SAMPLE_RATE
+                self._native_channels = CHANNELS
+                self._native_block_samples = self.block_samples
+                self.device_name = f"{dev_name} (16kHz mono native)"
+                return True
+            except Exception as e_direct:
+                _log(f"Direct 16kHz mono failed on {dev_name}: {e_direct}; attempting laptop rate adaptation...")
+
+            # Attempt B: Laptop Hardware-Rate & Stereo Adaptation
+            candidate_rates = [native_sr, 48000, 44100, 32000]
+            candidate_channels = [min(2, max_ch), 1]
+            # Deduplicate rates
+            candidate_rates = list(dict.fromkeys([r for r in candidate_rates if r >= 8000]))
+
+            for sr in candidate_rates:
+                for ch in candidate_channels:
+                    try:
+                        native_block = max(1, int(round(self.block_samples * sr / SAMPLE_RATE)))
+                        stream = sd.RawInputStream(
+                            samplerate=sr,
+                            channels=ch,
+                            dtype="int16",
+                            blocksize=native_block,
+                            device=dev,
+                        )
+                        stream.start()
+                        self._sd_stream = stream
+                        self._downsample = (sr != SAMPLE_RATE or ch != CHANNELS)
+                        self._native_sr = sr
+                        self._native_channels = ch
+                        self._native_block_samples = native_block
+                        self.device_name = f"{dev_name} ({sr}Hz {ch}ch -> 16kHz mono software adapted)"
+                        _log(f"Configured laptop mic: {self.device_name}")
+                        return True
+                    except Exception:
+                        continue
+
+        return False
 
     def _open_arecord(self) -> bool:
-        cmd = ["arecord", "-q", "-t", "raw", "-f", "S16_LE",
-               "-r", str(SAMPLE_RATE), "-c", str(CHANNELS)]
-        device = os.environ.get("SOUNDOS_MIC_DEVICE")
-        if device:
-            cmd += ["-D", device]
-        self._proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0
-        )
-        time.sleep(0.15)
-        if self._proc.poll() is not None:        # exited immediately -> failed
-            self._proc = None
-            return False
-        return True
+        devices_to_try = []
+        user_dev = os.environ.get("SOUNDOS_MIC_DEVICE")
+        if user_dev:
+            devices_to_try.append(user_dev)
+        devices_to_try.extend(["default", "pulse", "pipewire", "plughw:0,0", "plughw:1,0", "sysdefault"])
+
+        for dev in devices_to_try:
+            cmd = ["arecord", "-q", "-t", "raw", "-f", "S16_LE",
+                   "-r", str(SAMPLE_RATE), "-c", str(CHANNELS), "-D", dev]
+            try:
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0
+                )
+                time.sleep(0.12)
+                if proc.poll() is None:
+                    self._proc = proc
+                    self.device_name = f"arecord ({dev})"
+                    return True
+                else:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+            except Exception:
+                continue
+        return False
 
     def close(self) -> None:
         try:
@@ -202,11 +341,43 @@ class MicStream:
 
     # -- read --------------------------------------------------------------- #
     def read(self) -> Optional[bytes]:
-        """Return exactly one block of PCM bytes, or None on failure/EOF."""
+        """Return exactly one block of 16 kHz 16-bit mono PCM bytes (480 samples = 960 bytes)."""
         try:
             if self._sd_stream is not None:
-                data, _overflow = self._sd_stream.read(self.block_samples)
-                return bytes(data)
+                if not self._downsample:
+                    data, _overflow = self._sd_stream.read(self.block_samples)
+                    return bytes(data)
+
+                # Hardware adaptation: read native rate/channels and resample in memory
+                raw_bytes, _overflow = self._sd_stream.read(self._native_block_samples)
+                if not raw_bytes:
+                    return None
+
+                arr = np.frombuffer(raw_bytes, dtype=np.int16)
+                if self._native_channels > 1:
+                    # Multi-channel to mono: take primary channel or average
+                    arr = arr.reshape(-1, self._native_channels)[:, 0]
+
+                # Resample to 16 kHz
+                if self._native_sr == 48000:
+                    mono = arr[::3]
+                elif self._native_sr == 32000:
+                    mono = arr[::2]
+                elif self._native_sr == SAMPLE_RATE:
+                    mono = arr
+                else:
+                    # High precision linear interpolation using numpy
+                    coords = np.linspace(0, len(arr), self.block_samples, endpoint=False)
+                    mono = np.interp(coords, np.arange(len(arr)), arr).astype(np.int16)
+
+                # Ensure exact block size
+                out = mono.tobytes()
+                if len(out) < self.block_bytes:
+                    out = out + b"\x00" * (self.block_bytes - len(out))
+                elif len(out) > self.block_bytes:
+                    out = out[: self.block_bytes]
+                return out
+
             if self._proc is not None and self._proc.stdout is not None:
                 buf = b""
                 while len(buf) < self.block_bytes:

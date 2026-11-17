@@ -6,6 +6,8 @@ Exposes:
 """
 import os
 from .stt import SpeechToText, SAMPLE_RATE, PROMPTS
+from .textnorm import normalize
+from .run_live import Endpointer, SR
 
 _model_instance = None
 
@@ -70,4 +72,14 @@ def transcribe_wake(wav_path: str) -> dict:
         return transcribe(wav_path, lang_hint="en")
 
 
-__all__ = ["transcribe", "transcribe_wake", "SpeechToText", "PROMPTS", "SAMPLE_RATE", "get_model"]
+__all__ = [
+    "transcribe",
+    "transcribe_wake",
+    "SpeechToText",
+    "Endpointer",
+    "normalize",
+    "PROMPTS",
+    "SAMPLE_RATE",
+    "SR",
+    "get_model",
+]
