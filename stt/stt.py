@@ -23,8 +23,8 @@ ALLOWED_LANGS = ("ar", "en")     # the only languages the project supports
 
 # ONE concise domain-rich prompt per language to guide vocabulary and punctuation
 PROMPTS = {
-    "ar": "ديف، افتح المتصفح، علي الصوت، وطي الصوت، خفف الصوت، اكتم، شغل موسيقى، افتح الآلة الحاسبة، افتح الملفات، اقفل، ابحث عن، ارسل رسالة، افتح الترمينال، اعلي السطوع، وطي الإضاءة، افتحلي، ابعت رسالة.",
-    "en": "Hey Dave, open the browser, turn up volume, lower volume, mute, play music, open calculator, open files, close, search, send message, open terminal.",
+    "ar": "ديف، افتح المتصفح، اقفل المتصفح، اقفل التطبيق، اقفلي، سكر، علي الصوت، وطي الصوت، خفف الصوت، اكتم، شغل موسيقى، افتح الآلة الحاسبة، افتح الملفات، اقفل، ابحث عن، ارسل رسالة، افتح الترمينال، اعلي السطوع، وطي الإضاءة، افتحلي، ابعت رسالة.",
+    "en": "Hey Dave, open the browser, close the browser, close the app, turn up volume, lower volume, mute, play music, open calculator, open files, close, search, send message, open terminal.",
 }
 
 SILENCE_RMS = 0.003    # gate for (almost) digital silence; VAD handles real noise

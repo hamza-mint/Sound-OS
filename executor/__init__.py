@@ -93,8 +93,7 @@ def _handle_open_app(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]
 def _handle_close_app(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]:
     app_name = (params.get("app") or "").strip()
     if not app_name:
-        msg = "No application specified." if lang == "en" else "لم يتم تحديد التطبيق."
-        return False, msg
+        app_name = "current"
 
     app_info = _find_app(app_name)
     if not app_info:
@@ -103,12 +102,18 @@ def _handle_close_app(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str
 
     canonical, cfg = app_info
     if dry_run:
-        msg = f"[DRY-RUN] Closing {canonical}" if lang == "en" else f"[تجربة] إغلاق تطبيق {canonical}"
+        if canonical == "current":
+            msg = "[DRY-RUN] Closing active window." if lang == "en" else "[تجربة] إغلاق النافذة الحالية."
+        else:
+            msg = f"[DRY-RUN] Closing {canonical}" if lang == "en" else f"[تجربة] إغلاق تطبيق {canonical}"
         return True, msg
 
     ok, err = actions.terminate_app(cfg)
     if ok:
-        msg = f"Closed {canonical}." if lang == "en" else f"تم إغلاق {canonical}."
+        if canonical == "current":
+            msg = "Closed active application." if lang == "en" else "تم إغلاق التطبيق الحالي."
+        else:
+            msg = f"Closed {canonical}." if lang == "en" else f"تم إغلاق {canonical}."
     else:
         msg = f"Could not close {canonical}: {err}" if lang == "en" else f"تعذر إغلاق {canonical}: {err}"
     return ok, msg

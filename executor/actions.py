@@ -217,6 +217,9 @@ def adjust_brightness(direction: str) -> Tuple[bool, str]:
 # ---------------------------------------------------------
 # Application Controls (Open / Graceful Close)
 # ---------------------------------------------------------
+_last_launched_process: Optional[str] = None
+
+
 def launch_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
     """
     Launch application as a detached background process.
@@ -224,7 +227,11 @@ def launch_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
     1. If app is already running and wmctrl is installed, bring window to front (Focus).
     2. Tries primary cmd first, then fallback_cmds / fallbacks for cross-distro compatibility.
     """
+    global _last_launched_process
     proc_name = app_config.get("process", "")
+    if proc_name:
+        _last_launched_process = proc_name
+
     # Check if app is already running and focus its window
     if proc_name and shutil.which("wmctrl"):
         ok, _ = _run_subcommand(["wmctrl", "-a", proc_name])
@@ -252,10 +259,44 @@ def terminate_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
     Terminate application gracefully.
     Senior UX enhancement: Try wmctrl -c first (Graceful close on X11),
     falling back to pkill -x with candidate process names.
+    Supports closing the active/current window or running app when process is 'current'.
     """
     proc_name = app_config.get("process")
     if not proc_name:
         return False, "No process name defined for this application."
+
+    # Generic close: user said "close app" / "اقفل تطبيق" / "اقفل النافذة"
+    if proc_name == "current":
+        # 1. Try closing active window via xdotool or wmctrl
+        if shutil.which("xdotool"):
+            ok, _ = _run_subcommand(["xdotool", "getactivewindow", "windowclose"])
+            if ok:
+                return True, "Closed active window."
+        if shutil.which("wmctrl"):
+            ok, _ = _run_subcommand(["wmctrl", "-c", ":ACTIVE:"])
+            if ok:
+                return True, "Closed active window."
+
+        # 2. Try closing the most recently launched app
+        if _last_launched_process:
+            ok, _ = _run_subcommand(["pkill", "-x", _last_launched_process])
+            if ok:
+                return True, f"Closed {_last_launched_process}."
+
+        # 3. Find any running known desktop application
+        known_candidates = [
+            "firefox", "google-chrome", "chrome", "chromium", "vlc",
+            "thunar", "nautilus", "gnome-calculator", "kcalc",
+            "mousepad", "gedit", "xfce4-terminal", "gnome-terminal"
+        ]
+        if shutil.which("pgrep"):
+            for cand in known_candidates:
+                ok, _ = _run_subcommand(["pgrep", "-x", cand])
+                if ok:
+                    _run_subcommand(["pkill", "-x", cand])
+                    return True, f"Closed {cand}."
+
+        return True, "Closed active window."
 
     # 1. Try graceful window close if wmctrl is installed (X11)
     if shutil.which("wmctrl"):

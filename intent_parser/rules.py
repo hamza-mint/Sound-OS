@@ -25,11 +25,11 @@ _VERBS = set()      # command verbs only (not fillers, not the thing being opene
 
 def W(*words):
     """Regex: any of `words` as whole words, spelling-normalized.
-    Allows the Egyptian 'for me' suffix: افتح -> افتحلي, دور -> دورلي."""
+    Allows Egyptian imperative and dialect suffixes: افتح -> افتحي/افتحلي/افتحها."""
     norm = [N(w) for w in words]
     _VOCAB.update(norm)
     alts = sorted({re.escape(w) for w in norm}, key=len, reverse=True)
-    return r"\b(?:" + "|".join(alts) + r")(?:لي|ليا|لنا)?\b"
+    return r"\b(?:" + "|".join(alts) + r")(?:ي|لي|ليا|لنا|ه|ها|هم)?\b"
 
 
 def V(*words):
@@ -115,8 +115,8 @@ OPEN_ANY = V("افتح", "فتح", "تفتح", "شغل", "تشغل", "وريني
              "ابدا", "ادخل علي", "اعرض", "اظهر", "open", "oven", "launch", "start", "run", "show", "bring up")
 OPEN_NAV = V("افتح", "فتح", "تفتح", "وريني", "ودني", "وديني", "روح", "هات", "طلعلي", "ادخل علي", "اعرض", "اظهر",
              "open", "show", "go to", "take me to", "browse")          # no "شغل": that means play
-CLOSE = V("اقفل", "قفل", "تقفل", "سكر", "تسكر", "اغلق", "تغلق", "وقف", "اخرج من", "اطفي", "انهي",
-          "close", "quit", "exit", "kill", "stop", "terminate")
+CLOSE = V("اقفل", "قفل", "تقفل", "سكر", "تسكر", "اغلق", "تغلق", "وقف", "اخرج من", "اطفي", "طفي", "تطفي", "انهي",
+          "سيب", "اطلع من", "close", "quit", "exit", "kill", "stop", "terminate")
 PLAY = V("شغل", "تشغل", "اسمع", "سمعني", "تسمعني", "play", "put on", "listen to")
 SEARCH = V("ابحث", "تبحث", "دور", "تدور", "سيرش", "بحث", "search", "google", "look up", "lookup")
 SEND_MSG = W("ارسل", "ارسللي", "ابعت", "ابعتلي", "ابعث", "ابعثلي", "وصل", "send", "message", "text")
@@ -280,6 +280,9 @@ def r_close_app(t):
         app = _find_alias(APPS, t)
         if app:
             return ("close_app", {"app": app})
+        # Generic close: "اقفل تطبيق", "اقفل التطبيق", "اقفل البرنامج", "close app", "close the app"
+        if has(r"\b(?:تطبيق|التطبيق|البرنامج|برنامج|الابلكيشن|ابلكيشن|app|application|the app|the application|program|the program|current|this)\b", t) or t.strip() in {"اقفل", "اقفلي", "اغلق", "اغلقي", "سكر", "سكري", "طفي", "close"}:
+            return ("close_app", {"app": "current"})
 
 
 def r_send_message(t):
@@ -313,6 +316,8 @@ def _only_entity(t, table):
 
 
 def r_open_app(t):
+    if has(CLOSE, t):
+        return None
     app = _find_alias(APPS, t)
     if app and (has(OPEN_ANY, t) or len(t.split()) <= 3):
         return ("open_app", {"app": app})

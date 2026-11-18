@@ -63,6 +63,11 @@
       "process": "xfce4-settings-manager",
       "process_fallbacks": ["xfce4-settings-manager", "gnome-control-center", "systemsettings"],
       "aliases": ["settings", "preferences", "control panel", "الإعدادات", "الضبط", "اعدادات", "سيتنجز"]
+    },
+    "current": {
+      "cmd": [],
+      "process": "current",
+      "aliases": ["current", "active", "تطبيق", "التطبيق", "البرنامج", "النافذة", "نافذة", "الشاشة", "الصفحة"]
     }
   },
   "folders": {

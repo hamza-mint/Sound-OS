@@ -21,6 +21,8 @@
     "delete_file"
   ],
   "allowed_apps": [
+    "current",
+    "active",
     "telegram",
     "تليجرام",
     "تليغرام",
