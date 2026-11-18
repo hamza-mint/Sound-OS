@@ -23,8 +23,8 @@ ALLOWED_LANGS = ("ar", "en")     # the only languages the project supports
 
 # ONE concise domain-rich prompt per language to guide vocabulary and punctuation
 PROMPTS = {
-    "ar": "ديف، افتح المتصفح، علي الصوت، وطي الصوت، خفف الصوت، اكتم، شغل موسيقى، افتح الآلة الحاسبة، افتح الملفات، اقفل، ابحث عن، ارسل واتس، افتح الترمينال، اعلي السطوع، وطي الإضاءة، افتحلي، ابعت رسالة.",
-    "en": "Hey Dave, open the browser, turn up volume, lower volume, mute, play music, open calculator, open files, close, search, send message, send whatsapp, open terminal.",
+    "ar": "ديف، افتح المتصفح، علي الصوت، وطي الصوت، خفف الصوت، اكتم، شغل موسيقى، افتح الآلة الحاسبة، افتح الملفات، اقفل، ابحث عن، ارسل رسالة، افتح الترمينال، اعلي السطوع، وطي الإضاءة، افتحلي، ابعت رسالة.",
+    "en": "Hey Dave, open the browser, turn up volume, lower volume, mute, play music, open calculator, open files, close, search, send message, open terminal.",
 }
 
 SILENCE_RMS = 0.003    # gate for (almost) digital silence; VAD handles real noise
@@ -44,11 +44,13 @@ class SpeechToText:
     # ---------- helpers ----------
     @staticmethod
     def _load(audio):
-        """Path or array -> mono float32 in [-1, 1].
+        """Path or array or bytes -> mono float32 in [-1, 1].
         Files are read with soundfile (NOT PyAV) to avoid the
         'metadata_errors' incompatibility seen with faster-whisper + av."""
-        if isinstance(audio, str):
-            audio, sr = sf.read(audio, dtype="float32")
+        if isinstance(audio, (bytes, bytearray)):
+            return np.frombuffer(audio, dtype=np.int16).astype(np.float32) / 32768.0
+        if hasattr(audio, "__fspath__") or isinstance(audio, str):
+            audio, sr = sf.read(str(audio), dtype="float32")
             if sr != SAMPLE_RATE:
                 raise ValueError(
                     f"{sr} Hz file; expected {SAMPLE_RATE} Hz. Convert with: "
@@ -130,6 +132,31 @@ class SpeechToText:
             probs = dict(info.all_language_probs or [])
             lang = max(ALLOWED_LANGS, key=lambda l: probs.get(l, 0.0))
             text, _ = self._decode(audio, lang, use_prompt, custom_prompt=prompt)
+        return text, lang
+
+    def transcribe_wake(self, audio):
+        """Ultra-fast wake phrase decoding optimized for sub-second wake response."""
+        audio = self._load(audio)
+        if len(audio) < 0.2 * SAMPLE_RATE or self.rms(audio) < SILENCE_RMS:
+            return "", "en"
+
+        prompt = "Hey Dave, Dave, ديف, دايف, يا ديف."
+        segments, info = self.model.transcribe(
+            audio,
+            beam_size=1,
+            temperature=0.0,
+            initial_prompt=prompt,
+            without_timestamps=True,
+            max_new_tokens=20,
+            condition_on_previous_text=False,
+            repetition_penalty=1.2,
+            no_repeat_ngram_size=2,
+            vad_filter=False,
+        )
+        text = " ".join(s.text.strip() for s in segments).strip()
+        if self._is_repetitive(text):
+            text = ""
+        lang = info.language if info and info.language in ALLOWED_LANGS else "en"
         return text, lang
 
 

@@ -41,7 +41,7 @@ def record_utterance(max_seconds: float = 6.0) -> str:
         return ""
 
 
-def record_wake_clip(max_seconds: float = 1.6, silence_seconds: float = 0.35) -> str:
+def record_wake_clip(max_seconds: float = 1.4, silence_seconds: float = 0.22) -> str:
     """Fast clip recorder optimized for wake phrase detection. Never raises."""
     try:
         from .recorder import record_wake_clip as _impl

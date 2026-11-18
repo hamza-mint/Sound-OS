@@ -16,11 +16,30 @@ from .normalize import normalize as N
 
 
 # ------------------------------------------------------------------ helpers
+_VOCAB = set()      # every word W() ever saw. fuzzy.py uses it to repair STT typos, so a word
+                    # you add to a list below is automatically typo-tolerant too.
+_VERBS = set()      # command verbs only (not fillers, not the thing being opened).
+                    # fuzzy.py may repair a typo INTO these. It must not repair into
+                    # shutdown/delete words: those stay exact-match only.
+
+
 def W(*words):
     """Regex: any of `words` as whole words, spelling-normalized.
     Allows the Egyptian 'for me' suffix: افتح -> افتحلي, دور -> دورلي."""
-    alts = sorted({re.escape(N(w)) for w in words}, key=len, reverse=True)
+    norm = [N(w) for w in words]
+    _VOCAB.update(norm)
+    alts = sorted({re.escape(w) for w in norm}, key=len, reverse=True)
     return r"\b(?:" + "|".join(alts) + r")(?:لي|ليا|لنا)?\b"
+
+
+def V(*words):
+    """Same regex as W(), and the words are command verbs fuzzy.py is allowed to correct to."""
+    for n in (N(w) for w in words):
+        _VERBS.add(n)
+        for tok in n.split():
+            if len(tok) >= 3:
+                _VERBS.add(tok)
+    return W(*words)
 
 
 def has(pattern, t):
@@ -59,15 +78,18 @@ def _standalone(m, t):
 
 # ------------------------------------------------------------ vocabulary
 APPS = {   # canonical name (what the executor receives) -> spoken aliases
-    "firefox":    ["فايرفوكس", "فيرفوكس", "فاير فوكس", "firefox", "mozilla", "متصفح", "browser", "web browser", "براوزر", "البراوزر"],
-    "chrome":     ["كروم", "chrome", "chromium"],
-    "terminal":   ["تيرمينال", "ترمينال", "تيرمنال", "طرفيه", "terminal", "console", "command line"],
-    "files":      ["مدير الملفات", "ملفات", "file manager", "files", "thunar"],
-    "calculator": ["حاسبه", "الاله الحاسبه", "كالكيوليتر", "كالكولاتور", "calculator", "calc", "كلكيوليتر", "كالكو ليتر", "بنكا لكو ليتر"],
-    "editor":     ["محرر النصوص", "محرر", "نوت باد", "نوتباد", "text editor", "editor", "notepad", "gedit", "mousepad"],
-    "vlc":        ["vlc", "فلك", "مشغل الفيديو", "مشغل الميديا", "media player"],
-    "settings":   ["اعدادات", "سيتنجز", "settings", "preferences"],
-    "whatsapp":   ["واتس", "واتساب", "الواتس", "الواتساب", "whatsapp", "whats", "واتس اب", "الواتس اب"],
+    # "متصف", "مبصف", "لما تصف" = what whisper tiny/base really wrote for "المتصفح" (seen in tests)
+    "firefox":    ["فايرفوكس", "فيرفوكس", "فيرفكس", "فايرفكس", "فاير فوكس", "فاير فكس", "firefox", "mozilla", "موزيلا",
+                   "متصفح", "متصف", "مبصف", "لما تصف", "browser", "web browser", "براوزر", "البراوزر"],
+    "chrome":     ["كروم", "chrome", "chromium", "جوجل كروم", "جوجل", "google"],
+    "terminal":   ["تيرمينال", "ترمينال", "تيرمنال", "تيرمينل", "ترمنال", "ترمنل", "طرفيه", "terminal", "console", "command line"],
+    "files":      ["مدير الملفات", "مدير ملفات", "ملفات", "فايلات", "file manager", "files", "thunar", "explorer"],
+    "calculator": ["حاسبه", "الاله الحاسبه", "اله حاسبه", "كالكيوليتر", "كالكولاتور", "كالكوليتر", "كالكوليتور", "calculator",
+                   "calc", "كلكيوليتر", "كالكو ليتر", "بنكا لكو ليتر"],
+    "editor":     ["محرر النصوص", "محرر نصوص", "محرر", "نوت باد", "نوتباد", "text editor", "editor", "notepad", "gedit", "mousepad"],
+    "vlc":        ["vlc", "فلك", "في ال سي", "مشغل الفيديو", "مشغل الميديا", "media player"],
+    "settings":   ["اعدادات", "اعدادات النظام", "سيتنجز", "سيتنغز", "settings", "preferences"],
+
 }
 FOLDERS = {
     "home":      ["بيت", "هوم", "home", "رئيسيه"],
@@ -82,19 +104,21 @@ FOLDERS = {
 NOISE = W("ممكن", "لو سمحت", "من فضلك", "يا ريت", "بالله عليك", "لو تكرمت", "عايز", "عاوز", "عايزه",
           "نفسي", "اريد", "محتاج", "يا ساوند", "يا ديف", "يا عم ديف", "ياعم ديف", "بعد اذنك", "لو سمحتلي",
           "عايزك", "عاوزك", "محتاجك", "يا ريس", "يا باشا",
+          "بقي", "طيب", "طب", "يلا", "دلوقتي", "حالا", "بسرعه", "كده", "لو مش مشغول",   # Egyptian fillers
+          "هل يمكنك", "هل تستطيع", "ارجوك", "رجاء", "تفضل",
           "please", "can you", "could you", "would you",
           "hey sound", "ok sound", "sound os", "hey dave", "ok dave", "dave",
           "i want you to", "i want to", "i need you to",
           "i would like to", "i'd like to", "i wanna", "kindly", "now")
 
-OPEN_ANY = W("افتح", "فتح", "تفتح", "شغل", "تشغل", "وريني", "ودني", "وديني", "روح", "هات", "طلعلي",
-             "ابدا", "ادخل علي", "open", "launch", "start", "run", "show", "bring up")
-OPEN_NAV = W("افتح", "فتح", "تفتح", "وريني", "ودني", "وديني", "روح", "هات", "طلعلي", "ادخل علي",
+OPEN_ANY = V("افتح", "فتح", "تفتح", "شغل", "تشغل", "وريني", "ودني", "وديني", "روح", "هات", "طلعلي",
+             "ابدا", "ادخل علي", "اعرض", "اظهر", "open", "oven", "launch", "start", "run", "show", "bring up")
+OPEN_NAV = V("افتح", "فتح", "تفتح", "وريني", "ودني", "وديني", "روح", "هات", "طلعلي", "ادخل علي", "اعرض", "اظهر",
              "open", "show", "go to", "take me to", "browse")          # no "شغل": that means play
-CLOSE = W("اقفل", "قفل", "تقفل", "سكر", "تسكر", "اغلق", "تغلق", "وقف", "اخرج من", "اطفي",
+CLOSE = V("اقفل", "قفل", "تقفل", "سكر", "تسكر", "اغلق", "تغلق", "وقف", "اخرج من", "اطفي", "انهي",
           "close", "quit", "exit", "kill", "stop", "terminate")
-PLAY = W("شغل", "تشغل", "اسمع", "سمعني", "تسمعني", "play", "put on", "listen to")
-SEARCH = W("ابحث", "تبحث", "دور", "تدور", "سيرش", "بحث", "search", "google", "look up", "lookup")
+PLAY = V("شغل", "تشغل", "اسمع", "سمعني", "تسمعني", "play", "put on", "listen to")
+SEARCH = V("ابحث", "تبحث", "دور", "تدور", "سيرش", "بحث", "search", "google", "look up", "lookup")
 SEND_MSG = W("ارسل", "ارسللي", "ابعت", "ابعتلي", "ابعث", "ابعثلي", "وصل", "send", "message", "text")
 MAKE = W("اعمل", "اعملي", "اعمللي", "عمل", "تعمل", "انشي", "انشاء", "كريت", "اصنع", "جهز",
          "create", "make", "new", "generate")
@@ -112,9 +136,9 @@ VOL_OBJ = W("الصوت", "صوت", "فوليوم", "الفوليوم", "الس�
 BRI_OBJ = W("السطوع", "سطوع", "الاضاءه", "اضاءه", "الشاشه", "شاشه", "النور", "brightness", "backlight",
             "screen", "display")
 UP_WORDS = ["علي", "اعلي", "ارفع", "رفع", "زود", "زيد", "زياده", "كبر", "اكتر", "اكثر", "عالي", "اعلا",
-            "عليلي", "ارفعلي", "زودلي", "شد", "قوي",
+            "عليلي", "ارفعلي", "زودلي", "شد", "قوي", "كتر", "اكبر",
             "up", "raise", "increase", "louder", "higher", "more", "boost", "bump", "crank"]
-DOWN_WORDS = ["وطي", "واطي", "اخفض", "خفض", "قلل", "نزل", "انقص", "اقل", "خفف", "خففلي", "هدي", "هديلي", "اخفضلي",
+DOWN_WORDS = ["وطي", "واطي", "اوطي", "اخفض", "خفض", "قلل", "نزل", "انقص", "نقص", "اقل", "خفف", "خففلي", "هدي", "هديلي", "اخفضلي",
               "down", "lower", "decrease", "reduce", "quieter", "softer", "less", "drop"]
 
 # lead words dropped from free-text params
@@ -134,14 +158,14 @@ def _clean_name(rest):
 
 # ------------------------------------------------------- volume / brightness
 VOL = dict(
-    obj=VOL_OBJ, up=W(*UP_WORDS), down=W(*DOWN_WORDS),
+    obj=VOL_OBJ, up=V(*UP_WORDS), down=V(*DOWN_WORDS),
     too_high=W("عالي", "عاليه", "مرتفع", "جامد", "قوي"),
     too_low=W("واطي", "واطيه", "ضعيف", "خافت", "هادي", "هاديه"),
     stand_up=W("مش سامع", "مش سامعه") + r"|\blouder\b|\btoo (?:quiet|soft|low)\b|\bcan ?t hear\b",
     stand_down=r"\bquieter\b|\bsofter\b|\btoo (?:loud|noisy|high)\b",
 )
 BRI = dict(
-    obj=BRI_OBJ, up=W(*UP_WORDS, "نور", "brighter"), down=W(*DOWN_WORDS, "ظلم", "عتم", "اعتم", "خفف", "dim", "dimmer"),
+    obj=BRI_OBJ, up=V(*UP_WORDS, "نور", "brighter"), down=V(*DOWN_WORDS, "ظلم", "عتم", "اعتم", "خفف", "dim", "dimmer"),
     too_high=W("منوره", "ساطعه", "مبهره", "عالي", "عاليه", "جامده"),
     too_low=W("ضلمه", "مضلمه", "معتمه", "ضعيفه", "خافته", "خافت"),
     stand_up=r"\bbrighter\b|\btoo (?:dark|dim)\b",
@@ -158,7 +182,7 @@ def _adjust(t, c):
     if not has(c["obj"], t):
         return None
     # Egyptian complaints about state: "الصوت عالي" = "too loud" -> down. Not after "خلي" (make it).
-    if not has(W("خلي", "يبقي", "خليه"), t):
+    if not has(MAKE_IT, t):
         if has(c["obj"] + r"\s+(?:\S+\s+)?" + c["too_high"], t):
             return "down"
         if has(c["obj"] + r"\s+(?:\S+\s+)?" + c["too_low"], t):
@@ -171,6 +195,14 @@ def _adjust(t, c):
 
 # ------------------------------------------------------------------- rules
 # Each rule: text -> (intent, params) or None.
+MAKE_IT = W("خلي", "يبقي", "خليه")
+SHUTDOWN_NAME = W("شات داون", "shutdown", "shut down", "power off", "poweroff")
+SHUTDOWN_VERB = W("اقفل", "قفل", "تقفل", "اطفي", "طفي", "تطفي", "اغلق", "سكر", "اوقف",
+                  "اطفاء", "اغلاق", "ايقاف تشغيل", "turn off", "switch off", "power down")
+MUTE_NAME = W("اكتم", "كتم", "تكتم", "اسكت", "mute", "silence", "من غير صوت", "بدون صوت")
+MUTE_VERB = W("اقفل", "قفل", "تقفل", "سكر", "طفي", "اطفي", "وقف", "stop", "turn off", "switch off")
+DANGEROUS = {"shutdown", "delete_file"}      # only an exact rule may return these, never the fuzzy pass
+
 def r_web_search(t):
     for m in re.finditer(SEARCH, t):
         if _standalone(m, t):
@@ -180,9 +212,8 @@ def r_web_search(t):
 
 
 def r_shutdown(t):
-    if (has(W("شات داون", "shutdown", "shut down", "power off", "poweroff"), t)
-            or has(W("اقفل", "قفل", "تقفل", "اطفي", "طفي", "تطفي", "اغلق", "سكر", "اوقف",
-                     "turn off", "switch off", "power down") + r".*" + DEVICE, t)
+    if (has(SHUTDOWN_NAME, t)
+            or has(SHUTDOWN_VERB + r".*" + DEVICE, t)
             or has(r"\bturn (?:the )?(?:computer|pc|laptop|system|machine) off\b", t)):
         return ("shutdown", {})
 
@@ -196,9 +227,7 @@ def r_delete_file(t):
 
 
 def r_mute(t):
-    if (has(W("اكتم", "كتم", "تكتم", "اسكت", "mute", "silence", "من غير صوت", "بدون صوت"), t)
-            or has(W("اقفل", "قفل", "تقفل", "سكر", "طفي", "اطفي", "وقف", "stop", "turn off", "switch off")
-                   + r"\s+(?:\S+\s+)?" + VOL_OBJ, t)):
+    if has(MUTE_NAME, t) or has(MUTE_VERB + r"\s+(?:\S+\s+)?" + VOL_OBJ, t):
         return ("mute", {})
 
 
@@ -255,16 +284,40 @@ def r_close_app(t):
 
 def r_send_message(t):
     if has(SEND_MSG, t):
-        app = _find_alias(APPS, t)
-        if app == "whatsapp" or "واتس" in t or "whatsapp" in t:
-            return ("send_message", {"app": "whatsapp"})
-        if has(r"\b(?:رساله|رسائل|مسج|message)\b", t):
+        if has(r"\b(?:رساله|رسائل|مسج|message|msg)\b", t):
             return ("send_message", {})
+
+
+_BARE_FILLER = {"the", "a", "an", "ya", "يا"}
+
+
+def _only_entity(t, table):
+    """Key when `t` is just that alias, optionally with the/a/يا.
+
+    "firefox" and "the browser" open the app. "chrome is slow" and
+    "browser history" do not: mentioning an app is not a command.
+    """
+    best = None
+    for key, aliases in table.items():
+        for a in aliases:
+            m = re.search(_alias_re(a), t)
+            if m and (best is None or (m.start(), -len(N(a))) < best[0]):
+                best = ((m.start(), -len(N(a))), key, m)
+    if not best:
+        return None
+    m = best[2]
+    rest = f"{t[:m.start()]} {t[m.end():]}".split()
+    if all(tok in _BARE_FILLER for tok in rest):
+        return best[1]
+    return None
 
 
 def r_open_app(t):
     app = _find_alias(APPS, t)
-    if app and (has(OPEN_ANY, t) or len(t.split()) <= 3):        # bare "firefox" also opens it
+    if app and (has(OPEN_ANY, t) or len(t.split()) <= 3):
+        return ("open_app", {"app": app})
+    app = _only_entity(t, APPS)                                 # bare "firefox" / "the browser"
+    if app:
         return ("open_app", {"app": app})
 
 
@@ -305,7 +358,8 @@ def _out(intent, params, lang, raw):
 
 def parse(text, lang=None):
     """text -> {"intent", "params", "lang", "raw_text"}. Never raises.
-    No rule matches -> intent "unknown" (safety layer must block it)."""
+    No rule matches -> a typo-tolerant second pass (fuzzy.py), then optional LLM,
+    then intent "unknown" (safety layer must block it)."""
     raw = text if isinstance(text, str) else ""
     lang = _detect_lang(raw, lang)
     t = _prepare(raw)
@@ -313,6 +367,9 @@ def parse(text, lang=None):
         hit = rule(t)
         if hit:
             return _out(hit[0], hit[1], lang, raw)
+    hit = _fuzzy_hit(t)
+    if hit:
+        return _out(hit[0], hit[1], lang, raw)
     if os.getenv("SOUNDOS_LLM") == "1":                          # OPTIONAL, see llm_fallback.py
         from .llm_fallback import ask_llm
         hit = ask_llm(raw)
@@ -321,9 +378,37 @@ def parse(text, lang=None):
     return _out("unknown", {}, lang, raw)
 
 
+_fuzzy_warned = False
+
+
+def _fuzzy_hit(t):
+    """Second pass for STT spelling mistakes (المتصفح -> المبصف). Off with SOUNDOS_FUZZY=0.
+    A dangerous intent is NEVER accepted from here: a misheard word must not shut the PC down."""
+    if os.getenv("SOUNDOS_FUZZY", "1") == "0":
+        return None
+    try:
+        from .fuzzy import variants
+        for alt in variants(t):
+            for rule in RULES:
+                hit = rule(alt)
+                if hit:
+                    if hit[0] not in DANGEROUS:
+                        return hit
+                    break                                        # dangerous -> try the next variant
+    except Exception as exc:                                     # parser must never raise ...
+        global _fuzzy_warned
+        if not _fuzzy_warned:                                    # ... but a broken fuzzy.py must not be silent
+            _fuzzy_warned = True
+            import sys
+            print(f"[parser] fuzzy pass disabled by error: {exc!r}", file=sys.stderr)
+    return None
+
+
 YES = W("ايوه", "ايوا", "اه", "اكيد", "تمام", "ماشي", "موافق", "اوكي", "نعم",
+        "طبعا", "نفذ", "كمل", "اوكيه", "صح", "ايوه متاكد",
         "yes", "yeah", "yep", "sure", "ok", "okay", "confirm", "go ahead")
-NO = W("لا", "لاء", "الغي", "الغاء", "بلاش", "cancel", "no", "nope", "stop", "don't", "abort", "never mind")
+NO = W("لا", "لاء", "الغي", "الغاء", "بلاش", "مش عايز", "مش عاوز", "متعملش", "ماتعملش", "مش دلوقتي",
+       "cancel", "no", "nope", "stop", "don't", "abort", "never mind")
 
 
 def parse_yes_no(text):

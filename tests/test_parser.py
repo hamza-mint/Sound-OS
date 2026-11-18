@@ -58,8 +58,8 @@ def test_yes_no():
 
 def test_egyptian_arabic_nlp():
     from intent_parser import parse
-    assert parse("ارسل واتس")["intent"] == "send_message"
-    assert parse("send whatsapp")["intent"] == "send_message"
+    assert parse("ابعت رسالة")["intent"] == "send_message"
+    assert parse("send message")["intent"] == "send_message"
     assert parse("خفف الصوت")["intent"] == "volume_down"
     assert parse("افتحلي المتصفح")["intent"] == "open_app"
     assert parse("عليلي الصوت شوية")["intent"] == "volume_up"

@@ -222,7 +222,7 @@ def _strip_wake_word(text: str) -> str:
 
 
 def _wait_phrase_or_enter() -> bool:
-    """Wake on 'Hey Dave' / 'Hi Dave', combined wake+command, or direct command."""
+    """Wake on 'Hey Dave' / 'Hi Dave', combined wake+command, or direct command using continuous stream VAD."""
     global _pending_command
     try:
         from stt import transcribe_wake, transcribe
@@ -234,53 +234,104 @@ def _wait_phrase_or_enter() -> bool:
         return _wait_energy_or_enter()
 
     _log("Listening... Say 'Hey Dave' or speak a direct command (or press Enter)")
-    from .recorder import record_wake_clip
+    from collections import deque
+    from .recorder import MicStream, BLOCK_SAMPLES, BLOCK_MS, rms, compute_threshold
+    import numpy as np
 
-    while True:
-        if _enter_pressed():
-            _log("Wake bypassed via Enter key.")
-            return True
+    mic = MicStream(BLOCK_SAMPLES)
+    if not mic.open():
+        return _wait_energy_or_enter()
 
-        # Capture a short, fast-trigger candidate speech clip
-        path = record_wake_clip(max_seconds=1.8, silence_seconds=0.35)
-        if _enter_pressed():
-            return True
+    preroll = deque(maxlen=8)       # ~240 ms preroll buffer
+    speech_frames = []
+    started = False
+    silent_run = 0
+    noise_samples = []
+    threshold = 300.0
+    calibrated = False
 
-        if not path or not os.path.isfile(path):
-            continue
+    try:
+        while True:
+            if _enter_pressed():
+                _log("Wake bypassed via Enter key.")
+                return True
 
-        try:
-            # Primed transcription with 'Hey Dave' prompt
-            res = transcribe_wake(path) if transcribe_wake else transcribe(path)
-            text = res.get("text", "") if isinstance(res, dict) else ""
-            if text:
-                from intent_parser import parse
+            block = mic.read()
+            if block is None:
+                return False
 
-                # Check 1: Wake word detected (with or without attached command)
-                if _is_wake_word(text):
-                    cmd_part = _strip_wake_word(text)
-                    if cmd_part and parse(cmd_part)["intent"] != "unknown":
-                        _log(f"Wake word + Command captured: '{text}' -> '{cmd_part}' 🚀")
-                        _pending_command = cmd_part
-                    else:
-                        _log(f"Wake word matched: '{text}' ✅")
-                    return True
+            level = rms(block)
 
-                # Check 2: Direct Command! Spoke a command directly without repeating 'Hey Dave'
-                if parse(text)["intent"] != "unknown":
-                    _log(f"Direct command captured: '{text}' 🚀")
-                    _pending_command = text
-                    return True
+            # Quick initial calibration (first 6 blocks = ~180 ms)
+            if not calibrated:
+                noise_samples.append(level)
+                preroll.append(block)
+                if len(noise_samples) >= 6:
+                    threshold = compute_threshold(noise_samples)
+                    calibrated = True
+                continue
 
-                _log(f"Heard: '{text}' (waiting for 'Hey Dave' or command)...")
-        except Exception as exc:
-            _log(f"STT check error: {exc}")
-        finally:
-            try:
-                if path and path.startswith(tempfile.gettempdir()):
-                    os.remove(path)
-            except Exception:
-                pass
+            # Continuously adapt background noise floor while idle
+            if not started and level < threshold * 1.5:
+                threshold = 0.98 * threshold + 0.02 * max(level * 1.6, 200.0)
+
+            loud = level > threshold
+
+            if not started:
+                preroll.append(block)
+                if loud:
+                    started = True
+                    speech_frames = list(preroll)
+                    silent_run = 0
+                continue
+
+            # Speech in progress: accumulate audio
+            speech_frames.append(block)
+            if not loud:
+                silent_run += 1
+            else:
+                silent_run = 0
+
+            # Utterance finished on trailing silence (~210 ms) or max duration (~2.2 s)
+            max_frames = int(2.2 * 1000 / BLOCK_MS)
+            if silent_run >= 7 or len(speech_frames) >= max_frames:
+                # Discard ultra-short click/noise spikes (< 240 ms = 8 blocks)
+                if len(speech_frames) >= 8:
+                    pcm = b"".join(speech_frames)
+                    audio_arr = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+                    try:
+                        res = transcribe_wake(audio_arr) if transcribe_wake else transcribe(audio_arr)
+                        text = res.get("text", "") if isinstance(res, dict) else ""
+                        if text:
+                            from intent_parser import parse
+
+                            # Check 1: Wake word detected (with or without attached command)
+                            if _is_wake_word(text):
+                                cmd_part = _strip_wake_word(text)
+                                if cmd_part and parse(cmd_part)["intent"] != "unknown":
+                                    _log(f"Wake word + Command captured: '{text}' -> '{cmd_part}' 🚀")
+                                    _pending_command = cmd_part
+                                else:
+                                    _log(f"Wake word matched: '{text}' ✅")
+                                return True
+
+                            # Check 2: Direct Command without wake word
+                            if parse(text)["intent"] != "unknown":
+                                _log(f"Direct command captured: '{text}' 🚀")
+                                _pending_command = text
+                                return True
+
+                            _log(f"Heard: '{text}' (waiting for 'Hey Dave' or command)...")
+                    except Exception as exc:
+                        _log(f"STT check error: {exc}")
+
+                # Reset to resume continuous listening without reopening the mic
+                started = False
+                speech_frames = []
+                silent_run = 0
+                preroll.clear()
+    finally:
+        mic.close()
 
 
 def _wait_energy_or_enter() -> bool:

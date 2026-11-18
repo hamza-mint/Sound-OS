@@ -414,7 +414,7 @@ def record_utterance(
         return _silent_wav()
 
 
-def record_wake_clip(max_seconds: float = 1.6, silence_seconds: float = 0.35) -> str:
+def record_wake_clip(max_seconds: float = 1.4, silence_seconds: float = 0.22) -> str:
     """Ultra-fast recorder for wake-phrase detection (short window, fast trigger)."""
     try:
         return _record_utterance(float(max_seconds), float(silence_seconds), is_wake=True)

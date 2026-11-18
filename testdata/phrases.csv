@@ -189,3 +189,36 @@ U07,unknown,en,hello,unknown,
 U08,unknown,ar,افتح,unknown,
 U09,unknown,en,delete the file,unknown,
 U10,unknown,en,open,unknown,
+X01,ar_dialect,ar,افتح فيرفكس,open_app,app=firefox
+X02,ar_dialect,ar,شغللي فايرفكس,open_app,app=firefox
+X03,ar_dialect,ar,يلا افتح المتصفح بقى,open_app,app=firefox
+X04,ar_dialect,ar,طيب اقفل الكروم,close_app,app=chrome
+X05,ar_dialect,ar,افتح الكالكوليتور,open_app,app=calculator
+X06,ar_dialect,ar,وريني مدير ملفات,open_app,app=files
+X07,ar_dialect,ar,اعرض الصور,open_folder,folder=pictures
+X08,ar_dialect,ar,اظهر سطح المكتب,open_folder,folder=desktop
+X09,ar_dialect,ar,اوطي الصوت شوية,volume_down,
+X10,ar_dialect,ar,كتر الصوت,volume_up,
+X11,ar_dialect,ar,نقص الصوت,volume_down,
+X12,ar_dialect,ar,مش سامع حاجه,volume_up,
+X13,ar_dialect,ar,انهي الكروم,close_app,app=chrome
+X14,ar_dialect,ar,اطفاء الجهاز,shutdown,
+X15,ar_dialect,ar,اغلاق الكمبيوتر,shutdown,
+X16,ar_dialect,ar,ايقاف تشغيل الجهاز,shutdown,
+T01,stt_typos,ar,افتح المبصف,open_app,app=firefox
+T02,stt_typos,ar,افتح لما تصف,open_app,app=firefox
+T03,stt_typos,ar,افتح المتصف,open_app,app=firefox
+T04,stt_typos,ar,افتح الكرم,open_app,app=chrome
+T05,stt_typos,ar,افتح الكالكوليتير,open_app,app=calculator
+T06,stt_typos,ar,اقفل التيرمنل,close_app,app=terminal
+T07,stt_typos,ar,افتح مدير الملقات,open_app,app=files
+T08,stt_typos,en,oven the browser,open_app,app=firefox
+T09,stt_typos,en,open the brouser,open_app,app=firefox
+T10,stt_typos,en,close firefx,close_app,app=firefox
+T11,stt_typos,en,open calculater,open_app,app=calculator
+N01,stt_typos,ar,افتح الباب,unknown,
+N02,stt_typos,ar,افتح الحساب,unknown,
+N03,stt_typos,ar,اقفل الباب,unknown,
+N04,stt_typos,en,open the door,unknown,
+N05,stt_typos,ar,اطفي الجهار,unknown,
+N06,stt_typos,ar,اقفل الجهار,unknown,

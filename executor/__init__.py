@@ -225,21 +225,24 @@ def _handle_shutdown(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]
 
 
 def _handle_send_message(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]:
-    import urllib.parse
+    """Generic send_message handler: open the system mail client or messaging app."""
     recipient = (params.get("recipient") or params.get("contact") or "").strip()
     msg_text = (params.get("message") or params.get("text") or "").strip()
     if dry_run:
-        return True, f"[DRY-RUN] Sending message to {recipient or 'contact'}" if lang == "en" else f"[تجربة] إرسال رسالة إلى {recipient or 'جهة الاتصال'}"
-    url = "https://web.whatsapp.com"
+        return True, (f"[DRY-RUN] Send message to {recipient or 'contact'}" if lang == "en"
+                      else f"[تجربة] إرسال رسالة إلى {recipient or 'جهة الاتصال'}")
+    # Open the default messaging app via xdg-open mailto: (works across distros)
+    import urllib.parse
+    target = f"mailto:{urllib.parse.quote(recipient)}" if recipient else "mailto:"
     if msg_text:
-        url += f"/send?text={urllib.parse.quote(msg_text)}"
-    ok, err = actions.launch_app({"cmd": ["xdg-open", url], "process": "whatsapp", "aliases": []})
+        target += f"?body={urllib.parse.quote(msg_text)}"
+    ok, err = actions.launch_app({"cmd": ["xdg-open", target], "process": "", "aliases": []})
     if ok:
-        msg = f"Dispatched WhatsApp to {recipient}." if recipient else "Opened WhatsApp."
-        if lang == "ar":
-            msg = f"تم فتح واتساب للإرسال إلى {recipient}." if recipient else "تم فتح واتساب."
+        msg = (f"Message ready for {recipient}." if recipient else "Messaging app opened.") if lang == "en" \
+              else (f"جاهز للإرسال إلى {recipient}." if recipient else "فُتح تطبيق الرسائل.")
     else:
-        msg = f"Failed to send message: {err}" if lang == "en" else f"فشل إرسال الرسالة: {err}"
+        msg = (f"Failed to open messaging app: {err}" if lang == "en"
+               else f"فشل فتح تطبيق الرسائل: {err}")
     return ok, msg
 
 
