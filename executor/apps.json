@@ -63,6 +63,14 @@
       "process": "xfce4-settings-manager",
       "process_fallbacks": ["xfce4-settings-manager", "gnome-control-center", "systemsettings"],
       "aliases": ["settings", "preferences", "control panel", "الإعدادات", "الضبط", "اعدادات", "سيتنجز"]
+    },
+    "whatsapp": {
+      "cmd": ["xdg-open", "https://web.whatsapp.com"],
+      "fallback_cmds": [["whatsapp-for-linux"], ["xdg-open", "https://web.whatsapp.com"]],
+      "fallbacks": [["whatsapp-for-linux"]],
+      "process": "whatsapp",
+      "process_fallbacks": ["whatsapp-for-linux", "chrome", "firefox"],
+      "aliases": ["whatsapp", "whats", "واتس", "واتساب", "الواتس", "الواتساب"]
     }
   },
   "folders": {

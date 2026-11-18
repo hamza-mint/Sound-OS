@@ -54,3 +54,13 @@ def test_yes_no():
     assert parse_yes_no("ايوه") is True and parse_yes_no("yes please") is True
     assert parse_yes_no("لا") is False and parse_yes_no("no") is False
     assert parse_yes_no("banana") is None
+
+
+def test_egyptian_arabic_nlp():
+    from intent_parser import parse
+    assert parse("ارسل واتس")["intent"] == "send_message"
+    assert parse("send whatsapp")["intent"] == "send_message"
+    assert parse("خفف الصوت")["intent"] == "volume_down"
+    assert parse("افتحلي المتصفح")["intent"] == "open_app"
+    assert parse("عليلي الصوت شوية")["intent"] == "volume_up"
+    assert parse("ابعت رسالة")["intent"] == "send_message"

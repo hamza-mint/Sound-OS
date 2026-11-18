@@ -59,6 +59,12 @@ class SafetyLayer:
         # قاموس لحفظ وقت آخر تنفيذ لكل أمر خطير لتطبيق الـ Cooldown
         self.last_dangerous_time: Dict[str, float] = {}
 
+    def notify_confirmed(self, intent: str) -> None:
+        """Record dangerous command confirmation timestamp to enforce cooldown."""
+        if intent in self.dangerous_intents:
+            self.last_dangerous_time[intent] = time.monotonic()
+            logging.info(f"COOLDOWN_ACTIVATED | intent={intent} | duration={self.cooldown_seconds}s")
+
     @staticmethod
     def _load_config(path: str) -> Dict[str, Any]:
         """تحميل إعدادات الأمان من ملف allowlist.json أو استخدام قيم افتراضية آمنة."""
@@ -75,7 +81,7 @@ class SafetyLayer:
             "safe_intents": [
                 "open_app", "close_app", "volume_up", "volume_down", "mute",
                 "brightness_up", "brightness_down", "create_file", "open_folder",
-                "web_search", "play_media"
+                "web_search", "play_media", "send_message"
             ],
             "dangerous_intents": ["shutdown", "delete_file"],
             "allowed_apps": [

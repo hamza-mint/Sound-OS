@@ -111,3 +111,14 @@ def test_cooldown_enforced():
     res2 = safety.check(cmd, listen_yes_no_fn=lambda timeout: "yes")
     assert res2["approved"] is False
     assert "Cooldown active" in res2["reason"]
+
+
+def test_notify_confirmed_activates_cooldown():
+    from safety import notify_confirmed, get_safety_layer
+    safety = get_safety_layer()
+    safety.cooldown_seconds = 10.0
+    notify_confirmed("delete_file")
+    cmd = {"intent": "delete_file", "params": {"name": "test.txt"}, "lang": "en", "raw_text": "delete file"}
+    res = safety.check(cmd)
+    assert res["decision"] == "block"
+    assert "Cooldown active" in res["message"]

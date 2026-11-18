@@ -13,13 +13,24 @@
     "create_file",
     "open_folder",
     "web_search",
-    "play_media"
+    "play_media",
+    "send_message"
   ],
   "dangerous_intents": [
     "shutdown",
     "delete_file"
   ],
   "allowed_apps": [
+    "whatsapp",
+    "whats",
+    "واتس",
+    "واتساب",
+    "الواتس",
+    "الواتساب",
+    "whatsapp-for-linux",
+    "telegram",
+    "تليجرام",
+    "تليغرام",
     "firefox",
     "browser",
     "المتصفح",

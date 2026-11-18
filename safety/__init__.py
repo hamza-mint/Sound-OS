@@ -52,4 +52,12 @@ def check(
         }
 
 
-__all__ = ["check", "SafetyLayer", "DANGEROUS", "YES_WORDS", "NO_WORDS", "get_safety_layer"]
+def notify_confirmed(intent: str) -> None:
+    """Notify safety layer that user confirmed dangerous intent, activating cooldown."""
+    try:
+        get_safety_layer().notify_confirmed(intent)
+    except Exception:
+        pass
+
+
+__all__ = ["check", "notify_confirmed", "SafetyLayer", "DANGEROUS", "YES_WORDS", "NO_WORDS", "get_safety_layer"]

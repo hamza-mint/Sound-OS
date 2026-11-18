@@ -224,6 +224,25 @@ def _handle_shutdown(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]
     return ok, msg
 
 
+def _handle_send_message(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]:
+    import urllib.parse
+    recipient = (params.get("recipient") or params.get("contact") or "").strip()
+    msg_text = (params.get("message") or params.get("text") or "").strip()
+    if dry_run:
+        return True, f"[DRY-RUN] Sending message to {recipient or 'contact'}" if lang == "en" else f"[تجربة] إرسال رسالة إلى {recipient or 'جهة الاتصال'}"
+    url = "https://web.whatsapp.com"
+    if msg_text:
+        url += f"/send?text={urllib.parse.quote(msg_text)}"
+    ok, err = actions.launch_app({"cmd": ["xdg-open", url], "process": "whatsapp", "aliases": []})
+    if ok:
+        msg = f"Dispatched WhatsApp to {recipient}." if recipient else "Opened WhatsApp."
+        if lang == "ar":
+            msg = f"تم فتح واتساب للإرسال إلى {recipient}." if recipient else "تم فتح واتساب."
+    else:
+        msg = f"Failed to send message: {err}" if lang == "en" else f"فشل إرسال الرسالة: {err}"
+    return ok, msg
+
+
 # ---------------------------------------------------------------------------
 # Dispatch Table
 # ---------------------------------------------------------------------------
@@ -240,6 +259,7 @@ DISPATCH_TABLE = {
     "delete_file": _handle_delete_file,
     "web_search": _handle_web_search,
     "play_media": _handle_play_media,
+    "send_message": _handle_send_message,
     "shutdown": _handle_shutdown,
 }
 
@@ -250,6 +270,7 @@ def execute(command: dict) -> dict:
     Complies with CONTRACT.md:
     - Never raises exceptions.
     - Honours SOUNDOS_DRY_RUN=1 environment variable.
+    - Enforces direct approval on dangerous intents (Slide 7 & 9).
     - Returns format: {"success": bool, "message": str} in the requested lang.
     - Logs a warning if execution exceeds 1 second (CONTRACT.md §7).
     """
@@ -265,6 +286,13 @@ def execute(command: dict) -> dict:
 
         lang = command.get("lang") or "en"
         dry_run = os.getenv("SOUNDOS_DRY_RUN") == "1"
+
+        # Direct approval enforcement for dangerous commands (Slide 7 & 9)
+        # Bypassed if in dry-run mode or explicitly approved
+        if intent in ("shutdown", "delete_file") and not dry_run:
+            if not command.get("approved"):
+                msg = "Direct approval required for dangerous action." if lang == "en" else "يتطلب هذا الإجراء موافقة صريحة للأمان."
+                return {"success": False, "message": msg}
 
         handler = DISPATCH_TABLE.get(intent)
         if not handler:

@@ -67,6 +67,7 @@ APPS = {   # canonical name (what the executor receives) -> spoken aliases
     "editor":     ["محرر النصوص", "محرر", "نوت باد", "نوتباد", "text editor", "editor", "notepad", "gedit", "mousepad"],
     "vlc":        ["vlc", "فلك", "مشغل الفيديو", "مشغل الميديا", "media player"],
     "settings":   ["اعدادات", "سيتنجز", "settings", "preferences"],
+    "whatsapp":   ["واتس", "واتساب", "الواتس", "الواتساب", "whatsapp", "whats", "واتس اب", "الواتس اب"],
 }
 FOLDERS = {
     "home":      ["بيت", "هوم", "home", "رئيسيه"],
@@ -79,18 +80,22 @@ FOLDERS = {
 }
 
 NOISE = W("ممكن", "لو سمحت", "من فضلك", "يا ريت", "بالله عليك", "لو تكرمت", "عايز", "عاوز", "عايزه",
-          "نفسي", "اريد", "محتاج", "يا ساوند", "please", "can you", "could you", "would you",
-          "hey sound", "ok sound", "sound os", "i want you to", "i want to", "i need you to",
+          "نفسي", "اريد", "محتاج", "يا ساوند", "يا ديف", "يا عم ديف", "ياعم ديف", "بعد اذنك", "لو سمحتلي",
+          "عايزك", "عاوزك", "محتاجك", "يا ريس", "يا باشا",
+          "please", "can you", "could you", "would you",
+          "hey sound", "ok sound", "sound os", "hey dave", "ok dave", "dave",
+          "i want you to", "i want to", "i need you to",
           "i would like to", "i'd like to", "i wanna", "kindly", "now")
 
 OPEN_ANY = W("افتح", "فتح", "تفتح", "شغل", "تشغل", "وريني", "ودني", "وديني", "روح", "هات", "طلعلي",
-             "ابدا", "open", "launch", "start", "run", "show", "bring up")
-OPEN_NAV = W("افتح", "فتح", "تفتح", "وريني", "ودني", "وديني", "روح", "هات", "طلعلي",
+             "ابدا", "ادخل علي", "open", "launch", "start", "run", "show", "bring up")
+OPEN_NAV = W("افتح", "فتح", "تفتح", "وريني", "ودني", "وديني", "روح", "هات", "طلعلي", "ادخل علي",
              "open", "show", "go to", "take me to", "browse")          # no "شغل": that means play
-CLOSE = W("اقفل", "قفل", "تقفل", "سكر", "تسكر", "اغلق", "تغلق", "وقف", "اخرج من",
+CLOSE = W("اقفل", "قفل", "تقفل", "سكر", "تسكر", "اغلق", "تغلق", "وقف", "اخرج من", "اطفي",
           "close", "quit", "exit", "kill", "stop", "terminate")
 PLAY = W("شغل", "تشغل", "اسمع", "سمعني", "تسمعني", "play", "put on", "listen to")
 SEARCH = W("ابحث", "تبحث", "دور", "تدور", "سيرش", "بحث", "search", "google", "look up", "lookup")
+SEND_MSG = W("ارسل", "ارسللي", "ابعت", "ابعتلي", "ابعث", "ابعثلي", "وصل", "send", "message", "text")
 MAKE = W("اعمل", "اعملي", "اعمللي", "عمل", "تعمل", "انشي", "انشاء", "كريت", "اصنع", "جهز",
          "create", "make", "new", "generate")
 DEL = W("امسح", "احذف", "حذف", "مسح", "شيل", "ازل", "تمسح", "تحذف", "delete", "remove", "erase", "trash")
@@ -107,8 +112,9 @@ VOL_OBJ = W("الصوت", "صوت", "فوليوم", "الفوليوم", "الس�
 BRI_OBJ = W("السطوع", "سطوع", "الاضاءه", "اضاءه", "الشاشه", "شاشه", "النور", "brightness", "backlight",
             "screen", "display")
 UP_WORDS = ["علي", "اعلي", "ارفع", "رفع", "زود", "زيد", "زياده", "كبر", "اكتر", "اكثر", "عالي", "اعلا",
+            "عليلي", "ارفعلي", "زودلي", "شد", "قوي",
             "up", "raise", "increase", "louder", "higher", "more", "boost", "bump", "crank"]
-DOWN_WORDS = ["وطي", "واطي", "اخفض", "خفض", "قلل", "نزل", "انقص", "اقل",
+DOWN_WORDS = ["وطي", "واطي", "اخفض", "خفض", "قلل", "نزل", "انقص", "اقل", "خفف", "خففلي", "هدي", "هديلي", "اخفضلي",
               "down", "lower", "decrease", "reduce", "quieter", "softer", "less", "drop"]
 
 # lead words dropped from free-text params
@@ -247,6 +253,15 @@ def r_close_app(t):
             return ("close_app", {"app": app})
 
 
+def r_send_message(t):
+    if has(SEND_MSG, t):
+        app = _find_alias(APPS, t)
+        if app == "whatsapp" or "واتس" in t or "whatsapp" in t:
+            return ("send_message", {"app": "whatsapp"})
+        if has(r"\b(?:رساله|رسائل|مسج|message)\b", t):
+            return ("send_message", {})
+
+
 def r_open_app(t):
     app = _find_alias(APPS, t)
     if app and (has(OPEN_ANY, t) or len(t.split()) <= 3):        # bare "firefox" also opens it
@@ -257,7 +272,7 @@ RULES = [r_web_search,       # strong, anchored verb; checked first so "search h
          r_shutdown, r_delete_file,                              # dangerous before harmless
          r_mute, r_brightness, r_volume,
          r_create_file, r_open_folder, r_play_media,
-         r_close_app, r_open_app]
+         r_send_message, r_close_app, r_open_app]
 
 
 # --------------------------------------------------------------- public API

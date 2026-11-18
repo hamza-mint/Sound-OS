@@ -274,3 +274,24 @@ def test_play_media_offline_graceful():
         res = execute({"intent": "play_media", "params": {"query": "amr diab"}, "lang": "en"})
         assert res["success"] is False
         assert "internet" in res["message"].lower()
+
+
+def test_direct_approval_enforcement_on_dangerous_intents():
+    os.environ["SOUNDOS_DRY_RUN"] = "0"
+    # Unapproved shutdown attempt must be rejected
+    res = execute({"intent": "shutdown", "params": {}, "lang": "en"})
+    assert res["success"] is False
+    assert "approval required" in res["message"].lower()
+
+    # When approved=True, it proceeds (simulated via dry_run or system_shutdown mock)
+    from unittest.mock import patch
+    with patch("executor.actions.system_shutdown", return_value=(True, "")):
+        res_approved = execute({"intent": "shutdown", "params": {}, "lang": "en", "approved": True})
+        assert res_approved["success"] is True
+
+
+def test_send_message_dispatch():
+    os.environ["SOUNDOS_DRY_RUN"] = "1"
+    res = execute({"intent": "send_message", "params": {"recipient": "Ahmed", "message": "Salam"}, "lang": "en"})
+    assert res["success"] is True
+    assert "Ahmed" in res["message"]
