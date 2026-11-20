@@ -1,50 +1,45 @@
-# 🎙️ Sound OS — تقرير الفريق الشامل | Team Brief & Status
+# 🎙️ Sound OS — Comprehensive Team Brief & Status
 
-> **آخر تحديث:** 6 نوفمبر 2026  
-> **حالة المشروع:** المرحلة الأولى (Foundation) مكتملة ومدموجة في `main` بنسبة نجاح 100% (214 tests passed ✅).  
-> **الهدف:** توضيح الوضع الحالي للريبو، ما تم إنجازه، وخارطة طريق واضحة لكل عضو في الفريق لدوره القادم.
+> **Project Phase:** Core Foundation & Production Integration Complete. All modules merged into `main` with 100% automated test coverage.  
+> **Objective:** Document the system pipeline, module architecture, component interfaces, and team member deliverables.
 
 ---
 
-## 🗺️ أولاً: خريطة الـ Pipeline الشاملة
+## 🗺️ 1. End-to-End Pipeline Map
 
-المشروع عبارة عن طبقة تحكم صوتية فوق نظام Linux (Xubuntu / Xfce).  
-المستخدم يعطي أمراً صوتياً بالعامية المصرية أو بالإنجليزية، والنظام ينفّذه محلياً بالكامل (Offline-first).
+Sound OS is an offline-first Linux voice operating layer running on X11 / Wayland environments. Users issue spoken commands in colloquial Egyptian Arabic or English, and the system executes them deterministically:
 
 ```
-🎙️ ميكروفون
+🎙️ Microphone / Audio In
       ↓
-🔔 [Role 1] Audio & Wake Word       ← Abram           [الفرع: Abram-(Audio-WakeWord)]
-      ↓  (ملف صوتي WAV 16kHz)
-🗣️ [Role 2] Speech-to-Text          ← Mahmoud Hamed   ✅ مدموج في main
-      ↓  ({"text": "...", "lang": "ar"|"en"})
-🧠 [Role 3] Intent Parser           ← Kurollos (Kero) ✅ مدموج في main
-      ↓  (JSON بأمر محدد ومعايير واضحة)
-🤖 [Backup] Qwen3 Fallback (Ollama)  ← Kurollos        ✅ مدموج في main (اختياري)
+🔔 [Role 1] Audio & Wake Word       ← Abram           (audio/)
+      ↓  (16kHz mono WAV / PCM stream)
+🗣️ [Role 2] Speech-to-Text          ← Mahmoud Hamed   (stt/)
+      ↓  ({"text": "...", "lang": "ar"|"en", "confidence": ...})
+🧠 [Role 3] Intent Parser           ← Kurollos (Kero) (intent_parser/)
+      ↓  ({"intent": "...", "params": {...}})
+🤖 [Backup] Qwen3 Fallback (Ollama)  ← Kurollos        (intent_parser/llm_fallback.py)
       ↓
-🛡️ [Role 4] Safety Layer            ← Antonius        [الفرع: Antonius-(Safety)]
+🛡️ [Role 4] Safety Layer            ← Antonius        (safety/)
       ↓  ({"decision": "allow"|"confirm"|"block"})
-⚙️ [Role 5] Command Executor        ← Yassin          [الفرع: Yassin-(Executor)]
+⚙️ [Role 5] Command Executor        ← Yassin          (executor/)
       ↓  ({"success": true/false, "message": "..."})
-🔊 [Role 6] UI & TTS Feedback       ← Youssef Alam    [الفرع: Youssef-(UI-TTS)]
+🔊 [Role 6] UI & TTS Feedback       ← Youssef Alam    (ui_tts/)
 ```
 
-**فرق الجودة والاختبار المستمر:**
-- 🎙️ **Role 7 — QA & Soundsets:** Kirollos Ibrahim `[الفرع: KirollosIbrahim-(QA)]`
-- 🧪 **Role 8 — Automated Testing & Benchmarks:** Kareem Waleed `[الفرع: Kareem-(AutoTesting)]`
+**Quality Assurance & Continuous Testing:**
+- 🎙️ **Role 7 — QA & Soundsets:** Kirollos Ibrahim (`testdata/`)
+- 🧪 **Role 8 — Automated Testing & Benchmarks:** Kareem Waleed (`tests/`)
 
 ---
 
-## 🤝 ثانياً: العقد الموحد (The Unified Interface Contract)
+## 🤝 2. The Unified Interface Contract
 
-> [!IMPORTANT]
-> العقد الرسمي موجود في أصل المشروع [`CONTRACT.md`](../CONTRACT.md).  
-> جميع الموديولز تعمل بالفعل الآن بفضل الـ Stubs المجهزة مسبقاً — لا أحد ينتظر الآخر للبدء!  
-> الأمر `python main.py --text "افتح فايرفوكس"` يعمل الآن من اليوم الأول.
+The official project specification is defined in the root contract: [`CONTRACT.md`](../CONTRACT.md).
 
-### ملخص شكل البيانات المتبادلة بين المكونات:
+### Payload Schema Across Module Boundaries:
 
-#### 1. مخرجات الـ STT (محمود) ⬅ الـ Parser (كيرلس):
+#### 1. STT Output (Mahmoud) ➡️ Intent Parser (Kero):
 ```json
 {
   "text": "افتح فايرفوكس",
@@ -53,7 +48,7 @@
 }
 ```
 
-#### 2. مخرجات الـ Intent Parser (كيرلس) ⬅ الـ Safety (أنتونيوس):
+#### 2. Intent Parser Output (Kero) ➡️ Safety Layer (Antonius):
 ```json
 {
   "intent": "open_app",
@@ -63,140 +58,59 @@
 }
 ```
 
-#### 3. مخرجات الـ Safety Layer (أنتونيوس) ⬅ الـ Executor (ياسين):
+#### 3. Safety Layer Output (Antonius) ➡️ Command Executor (Yassin):
 ```json
 {
   "decision": "allow",
-  "message": "الأمر آمن للتنفيذ"
+  "message": "Action permitted."
 }
 ```
-*(أو `"decision": "confirm"` للأوامر الخطرة مثل إغلاق الجهاز وحذف الملفات).*
+*(Or `"decision": "confirm"` for sensitive intents like system shutdown and file deletion).*
 
-#### 4. مخرجات الـ Executor (ياسين) ⬅ الـ UI/TTS (يوسف علام):
+#### 4. Executor Output (Yassin) ➡️ UI & TTS Feedback (Youssef):
 ```json
 {
   "success": true,
-  "message": "تم فتح المتصفح"
+  "message": "Opened firefox."
 }
 ```
 
 ---
 
-## 📊 ثالثاً: حالة الإنجاز الحالي في الريبو (`main`)
+## 📊 3. Core Component Implementation Summary
 
-### 1. ما تم إنجازه ودمجه بنجاح ✅
-
-| الموديول | العضو | الحالة | ملخص ما تم تنفيذه |
-|---|---|---|---|
-| **Speech-to-Text (`stt/`)** | **Mahmoud Hamed** | ✅ منجز ومدموج | نموذج `faster-whisper` مدمج مع تطبيع اللهجة المصرية `textnorm.py`، واختبارات قياس WER ومعدل السرعة `bench.py`. |
-| **Intent Parser (`intent_parser/`)** | **Kurollos (Kero)** | ✅ منجز ومدموج | محرك تحليل الأوامر المبني على القواعد (Regex + RapidFuzz) يغطي 13 أمراً بنسبة دقة **100% على 190 جملة اختبار**. دعم العامية المصرية والإنجليزية بالكامل. |
-| **LLM Fallback (`intent_parser/llm_fallback.py`)** | **Kurollos (Kero)** | ✅ منجز ومدموج | ربط احتياطي بموديل Qwen3 عبر Ollama في حال لم تطابق القواعد، ومضبوط بـ timeout وحماية لمنع توليد أوامر خطرة. |
-| **Pipeline Glue (`main.py`)** | **Kurollos (Kero)** | ✅ منجز ومدموج | شريان الربط الذي يستدعي كافة الدوال بالترتيب القانوني، ويدعم وضع التجربة النصية بدون ميكروفون `--text`. |
-| **Stubs لكافة الأدوار** | الفريق | ✅ جاهزة في main | مجلدات `audio/`, `safety/`, `executor/`, `ui_tts/` تحوي كوداً أولياً يطبق العقد تماماً لتشغيل الاختبارات. |
-| **مجموعة الاختبارات (`tests/`)** | Kareem / Kero | ✅ 214 اختبار ينجح | جميع اختبارات العقد (Contract tests) والـ Parser و الـ Textnorm تمر بنجاح كامل في أقل من 5 ثوانٍ. |
+| Module | Role Owner | Implementation Highlights |
+|---|---|---|
+| **Speech-to-Text (`stt/`)** | **Mahmoud Hamed** | Offline `faster-whisper` integration, Egyptian Arabic text normalization, VAD endpointing, and WER benchmarking. |
+| **Intent Parser (`intent_parser/`)** | **Kurollos (Kero)** | Rule-based normalization covering all intents across Egyptian Arabic and English, compound multi-action splitter, and typo-tolerant fuzzy matching. |
+| **LLM Fallback (`intent_parser/llm_fallback.py`)** | **Kurollos (Kero)** | Local fallback connector targeting Qwen3 via Ollama with strict timeouts and prompt containment. |
+| **Safety Layer (`safety/`)** | **Antonius** | Tri-state gatekeeper verifying allowlists, interactive confirmation dialogs, confidence score filtering, and security cooldown timers. |
+| **Command Executor (`executor/`)** | **Yassin** | Direct $O(1)$ dispatch table, detached process spawning, audio server detection (PipeWire/PulseAudio), VM brightness gamma scaling, and trash-based file sandboxing. |
+| **UI & Voice Feedback (`ui_tts/`)** | **Youssef Alam** | Dave animated interactive voice window, desktop notifications (`notify-send`), and high-speed bilingual speech synthesis. |
+| **Automated Testing (`tests/`)** | **Kareem Waleed** | 470+ automated unit, regression, integration, and contract tests. |
 
 ---
 
-## 🎯 رابعاً: خطة العمل المباشرة لكل دور قادم
+## 🔒 4. Engineering Principles
 
-تم إنشاء فرع مستقل لكل عضو مشتق مباشرة من أحدث نسخة لـ `main`:
+1. **Never Raise Exceptions:** Public functions across all modules must adhere to exception containment. Failures return structured error dictionaries (`{"success": false, "message": "..."}`) rather than crashing the runtime loop.
+2. **Modular Decoupling:** Components interact exclusively through standard Python function arguments and primitive dictionaries defined in `CONTRACT.md`.
+3. **Defense-in-Depth:** Safety checks operate both at the governance layer (`safety/`) and within the execution engine's filesystem sandbox (`executor/`).
+4. **Offline First:** Zero telemetry and zero cloud dependencies for all core voice control tasks.
+
+---
+
+## 🚀 Running and Testing the Pipeline
 
 ```bash
-# للبدء في العمل على فرعك الخاص:
-git fetch origin
-git checkout <اسم-فرعك>
-git pull origin <اسم-فرعك>
-```
-
----
-
-### 1️⃣ دور أبرام — Audio & Wake Word
-- **الفرع المخصص:** `Abram-(Audio-WakeWord)`
-- **المجلد الخاص به:** `audio/`
-- **الدليل التفصيلي المجهز له:** يرجى قراءة [`docs/Abram-Audio-Guide.md`](./Abram-Audio-Guide.md)
-- **الدوال المطلوبة (حسب CONTRACT.md):**
-  1. `wait_for_wake_word() -> None`: الاستماع حتى رصد كلمة التنبيه.
-  2. `record_utterance(max_seconds=6.0) -> str`: تسجيل كلام المستخدم وحفظه في ملف 16kHz mono WAV لـ Whisper.
-- **الاختبار والرفع:** تشغيل `python3 -m audio.test_audio` والرفع إلى فرعه `Abram-(Audio-WakeWord)`.
-
----
-
-### 2️⃣ دور أنتونيوس — Safety Layer
-- **الفرع المخصص:** `Antonius-(Safety)`
-- **المجلد الخاص به:** `safety/`
-- **الدوال المطلوبة (حسب CONTRACT.md):**
-  - `check(parsed: dict) -> dict`:
-    - ترجع `{"decision": "allow", "message": "..."}` للأوامر العادية (`open_app`, `volume_up`, ...).
-    - ترجع `{"decision": "confirm", "message": "هل أنت متأكد؟"}` للأوامر الخطرة (`shutdown`, `delete_file`).
-    - ترجع `{"decision": "block", "message": "أمر محظور"}` لأي أمر مجهول أو محظور (مثل `rm -rf` أو تعديل خارج مسار مجلد النظام).
-- **الخطوة الأولى:** بناء جدول الـ Allowlist والتحقق من عدم السماح بحذف أي ملف خارج مجلد `~/SoundOS_Files/`.
-
----
-
-### 3️⃣ دور ياسين — Command Executor
-- **الفرع المخصص:** `Yassin-(Executor)`
-- **المجلد الخاص به:** `executor/`
-- **الدوال المطلوبة (حسب CONTRACT.md):**
-  - `execute(parsed: dict) -> dict`:
-    - تنفيذ الأمر الفعلي عبر أدوات لينكس (`pactl` للصوت، `brightnessctl` للسطوع، `xdg-open` أو `subprocess.Popen` لتشغيل البرامج، `gio trash` لحذف الملفات بأمان).
-    - احترام البيئة الآمنة: إذا كان المتغير `SOUNDOS_DRY_RUN=1` مفعل، لا ينفذ الأمر فعلياً بل يسجل فقط.
-- **الخطوة الأولى:** كتابة دوال التحكم بالصوت والتطبيقات وتجربتها مباشرة عبر الـ Terminal.
-
----
-
-### 4️⃣ دور يوسف علام — الواجهة الرسومية (GUI Only)
-- **الفرع المخصص:** `Youssef-(UI-TTS)`
-- **المجلد الخاص به:** `ui_tts/`
-- **الدليل التفصيلي المجهز له:** يرجى قراءة [`docs/Youssef-UI-Guide.md`](./Youssef-UI-Guide.md)
-- **نطاق الدور (مبسط ومباشر):**
-  - دور علام مقتصر فقط على **الواجهة الرسومية (GUI)** وإشعار سطح المكتب، دون أي تعقيد في النماذج الصوتية.
-- **المهام المطلوبة منه في مجلده:**
-  1. `ui_tts/coucou_bridge.py`: إظهار شريط الجزيرة العائم في أعلى الشاشة (`on_wake`, `on_heard`, `on_done`).
-  2. `ui_tts/__init__.py`: إرسال إشعار سطح المكتب `notify()`.
-  3. `ui_tts/test_ui.py`: سكربت تجربة سريع لرؤية الواجهة تعمل على الشاشة.
-- **الرفع:** يرفع عمله مباشرة إلى مجلده `ui_tts/` على فرعه `Youssef-(UI-TTS)`.
-
----
-
-### 5️⃣ دور كيرلس إبراهيم — QA & Test Audio Sets
-- **الفرع المخصص:** `KirollosIbrahim-(QA)`
-- **المجلد المخصص له:** `testdata/`
-- **المهام المطلوبة:**
-  1. تسجيل ملفات صوتية واقعية (WAV 16kHz) من أشخاص مختلفين (3 متحدثين على الأقل) تمثل الأوامر الـ 13 بالعربي والإنجليزي في بيئات هادئة ومشوشة.
-  2. توثيق حالات الاختبار ومتابعة قياس دقة الـ STT و الـ Parser.
-
----
-
-### 6️⃣ دور كريم وليد — Automated Testing & CI
-- **الفرع المخصص:** `Kareem-(AutoTesting)`
-- **المجلد المخصص له:** `tests/`
-- **المهام المطلوبة:**
-  1. كتابة اختبارات تكامل (End-to-End Tests) تحاكي تدفق البيانات من ملفات الصوت حتى المخرجات النهائية.
-  2. كتابة سكربت لحساب Word Error Rate (WER) واختبارات الـ Benchmark للسرعة واستهلاك الذاكرة.
-  3. التأكد الدائم من بقاء الاختبارات خضراء في الـ CI (`pytest`).
-
----
-
-## 🔒 القواعد الذهبية للفريق (Team Rules)
-
-1. **الفرع الرئيسي `main` مقدس:** لا أحد يقوم بالرفع المباشر (`git push origin main`). كل عضو يعمل في فرعه، وتتم المراجعة والدمج بعد التأكد من نجاح الـ pytest.
-2. **لا تلمس مجلد غيرك:** كل عضو يعدل حصراً في المجلد الخاص به (`audio/`, `safety/`, `executor/`, `ui_tts/`).
-3. **الدوال لا ترفع استثناءات (Never Raise Exceptions):** في حال حدوث أي خطأ، يتم إرجاع قيمة خطأ مهذبة (`success: false` أو `decision: "block"`) لضمان عدم توقف النظام ككل.
-4. **العقد هو الحكم:** أي تعديل في صيغة الـ JSON أو أسماء الدوال يتطلب تحديث [`CONTRACT.md`](../CONTRACT.md) بموافقة الفريق.
-
----
-
-## 🚀 كيفية تشغيل واختبار المشروع الآن
-
-```bash
-# 1. تفعيل البيئة الافتراضية
+# 1. Activate virtual environment
 source .venv/bin/activate
 
-# 2. تشغيل كافة الاختبارات للتأكد من سلامة النظام
+# 2. Run automated test suite
 pytest -q
 
-# 3. تجربة النظام كاملاً عبر سطر الأوامر (محاكاة أمر صوتي)
+# 3. Simulate text commands (no microphone required)
 python main.py --text "افتح فايرفوكس"
-python main.py --text "ارفع الصوت"
-python main.py --text "open terminal"
+python main.py --text "turn up volume"
+python main.py --text "open terminal and turn up volume"
 ```

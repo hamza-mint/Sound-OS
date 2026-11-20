@@ -281,7 +281,7 @@ def r_play_media(t):
 CURRENT_NOUN = (r"\b(?:تطبيق|التطبيق|البرنامج|برنامج|الابلكيشن|ابلكيشن|النافذه|نافذه|الويندو|ويندو|"
                 r"الصفحه|صفحه|app|application|the app|the application|program|the program|current|this)\b"
                 r"|(?<!\bthe )\bwindow\b")                      # "close window" yes, "close the window" (a real one) no
-_CLOSE_VERB = r"(?:اقفل|اقفلي|قفل|سكر|سكري|اغلق|اغلقي|انهي|close|quit|exit|kill|terminate)(?:لي|ليا|لنا|ه|ها)?"
+_CLOSE_VERB = r"(?:اقفل|اقفلي|قفل|سكر|سكري|اغلق|اغلقي|انهي|طفي|close|quit|exit|kill|terminate)(?:لي|ليا|لنا|ه|ها)?"
 _POINTING = (r"(?:ده|دا|دي|ديه|هذا|هذه|الحالي|الحاليه|الشغال|المفتوح|المفتوحه|"
              r"(?:اللي|الي) (?:شغال|قدامي|فاتح|مفتوح|معايا)|it|that|this one|that one|this)")
 
@@ -371,12 +371,20 @@ def _out(intent, params, lang, raw):
     return {"intent": intent, "params": params, "lang": lang, "raw_text": raw}
 
 
+# A NEGATED command must never run: "متفتحش الكروم" (don't open chrome) used to OPEN chrome.
+# Egyptian ما/م + ت... + ش,  "لا تفتح", "بلاش", "مش عايز ...", English don't / do not / never.
+NEGATED = re.compile(r"\bما ?ت\w+ش\b|\bمت\w+ش\b|\bلا ?ت\w+\b|\bبلاش\b|\bمش (?:عايز|عاوز|محتاج)\b|"
+                     r"\b(?:don'?t|do not|never|no need to)\b")
+
+
 def parse(text, lang=None):
     """text -> {"intent", "params", "lang", "raw_text"}. Never raises.
     No rule matches -> a typo-tolerant second pass (fuzzy.py), then optional LLM,
     then intent "unknown" (safety layer must block it)."""
     raw = text if isinstance(text, str) else ""
     lang = _detect_lang(raw, lang)
+    if NEGATED.search(N(raw)):
+        return _out("unknown", {}, lang, raw)
     t = _prepare(raw)
     for rule in RULES:
         hit = rule(t)

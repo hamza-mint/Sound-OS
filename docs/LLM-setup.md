@@ -1,378 +1,363 @@
-# 🛠️ تشغيل الـ LLM (Ollama) — خطوة بخطوة
+# 🛠️ Running the LLM (Ollama) — Step-by-Step Guide
 
-> اقرأ `llm-basics.md` الأول لو أي مصطلح مش واضح.
-> بعد كل خطوة في **✅ المفروض تشوف**. لو مشفتهاش وقّف وابعت لقطة شاشة أو نص الخطأ.
+> Read `llm-basics.md` first if any terminology or concepts are unfamiliar.
+> After each milestone, verify against the **✅ Expected Result** indicator. If the result does not match, pause and inspect system logs before proceeding.
 
 <a id="index"></a>
 
 ---
 
-## 📑 الفهرس (دوس على أي رابط)
+## 📑 Index
 
-### أنا عايز أعرف أعمل إيه
+### Action Checklist by Role
 
-| أنا... | أعمل بالترتيب |
+| Role | Step-by-Step Execution Sequence |
 |---|---|
-| 👑 **صاحب اللاب القوي** | [1](#phase-1) ← [2](#phase-2) ← [3](#phase-3) ← [4 (المشاركة)](#phase-4) ← [الأوامر المشتركة](#commands) ← [الاختبار النهائي](#final-test) |
-| 👥 **باقي الأعضاء** | [4](#phase-4) ← [الأوامر المشتركة](#commands) ← [الاختبار النهائي](#final-test) |
+| 👑 **Host Machine Owner** (GPU Laptop) | [Phase 1](#phase-1) → [Phase 2](#phase-2) → [Phase 3](#phase-3) → [Phase 4 (Node Sharing)](#phase-4) → [Common Commands](#commands) → [Final Verification](#final-test) |
+| 👥 **Team Members** | [Phase 4](#phase-4) → [Common Commands](#commands) → [Final Verification](#final-test) |
 
-> باقي الأعضاء يبدأوا **بعد** ما صاحب اللاب يخلّص المرحلتين 1 و2.
+> Team members should begin their setup **after** the host machine owner has verified Phases 1 and 2.
 
-### كل الأقسام
+### Table of Contents
 
-| القسم | مين بيعمله |
+| Section | Target Audience |
 |---|---|
-| [الصورة الكبيرة وTailscale](#big-picture) | الكل (قراءة) |
-| [المرحلة 0: قرارات قبل ما نبدأ](#phase-0) | الفريق |
-| [المرحلة 1: Ollama والموديل على ويندوز](#phase-1) | صاحب اللاب |
-| [المرحلة 2: Tailscale على ويندوز + الجدار الناري](#phase-2) | صاحب اللاب |
-| [المرحلة 3: الـ VM بتاعة صاحب اللاب](#phase-3) | صاحب اللاب |
-| [المرحلة 4: الـ VM بتاعة كل عضو + مشاركة السيرفر](#phase-4) | كل عضو + صاحب اللاب |
-| [الأوامر المشتركة وليه كتبناها](#commands) | الكل |
-| [الاختبار النهائي للموديل](#final-test) | الكل |
-| [بديل: Ollama جوه الـ VM من غير سيرفر](#fallback) | لو مفيش سيرفر |
-| [المصادر](#sources) | |
+| [System Architecture & Tailscale Overview](#big-picture) | All (Reference) |
+| [Phase 0: Pre-Flight Checklist](#phase-0) | Entire Team |
+| [Phase 1: Ollama & Model Provisioning (Windows Host)](#phase-1) | Host Machine Owner |
+| [Phase 2: Tailscale Mesh & Firewall Configuration (Windows Host)](#phase-2) | Host Machine Owner |
+| [Phase 3: Host Machine Guest VM Configuration](#phase-3) | Host Machine Owner |
+| [Phase 4: Team Guest VMs & Tailscale Node Sharing](#phase-4) | Team Members + Host Owner |
+| [Common Commands & Environment Configuration](#commands) | All |
+| [Final Model Inference Verification](#final-test) | All |
+| [Standalone Fallback: Local VM Ollama (No Host Dependency)](#fallback) | Fallback / Standalone |
+| [Official References](#sources) | All |
 
 ---
 
 <a id="big-picture"></a>
 
-## الصورة الكبيرة
+## System Architecture & Tailscale Overview
 
 ```
-[لاب قوي (ويندوز)] ← Ollama + الموديل + Tailscale
-        ▲
-        │  Tailscale (شبكة خاصة)
-        │
-[الـ VM بتاعة كل واحد (Xubuntu)] ← Tailscale + بتبعت جملة وتستلم رد
+[GPU Host Laptop (Windows)] ──── Ollama + Model + Tailscale
+          ▲
+          │  Tailscale Encrypted Mesh (Private WireGuard Overlay)
+          │
+[Team Guest VMs (Xubuntu)]  ──── Tailscale + HTTP Inference Client
 ```
 
-اللاب القوي هو **المطبخ**، والـ VMs هي **الجرسونات**، وTailscale هو **الطريق الخاص** بينهم.
+The GPU host acts as the **central compute node (Kitchen)**, the guest VMs act as **inference clients (Waiters)**, and Tailscale provides the **zero-trust private network tunnel**.
 
-### Tailscale في 5 مفاهيم
+### 5 Essential Tailscale Concepts
 
-| المفهوم | معناه ببساطة |
+| Concept | Description |
 |---|---|
-| **Tailscale** | برنامج بيربط أجهزتك بشبكة خاصة فوق الإنترنت، من غير ما تفتح أي بورت للعالم |
-| **Tailnet** | "شبكتك الخاصة". بتتعمل أول ما تسجّل دخول بأي جهاز |
-| **Admin console** | موقع الإدارة، فيه صفحة **Machines** بتشوف منها أجهزتك |
-| **عنوان `100.x.y.z`** | عنوان الجهاز جوه شبكة Tailscale، وهو اللي هنكلّم بيه السيرفر |
-| **Share (مشاركة)** | بتدّي حد في **شبكة تانية** وصول لجهاز واحد بس من أجهزتك |
+| **Tailscale** | Mesh VPN software built on WireGuard, connecting devices over a private overlay without opening public ports. |
+| **Tailnet** | Your isolated private network, provisioned automatically upon initial account authentication. |
+| **Admin Console** | Web portal displaying your active **Machines** and their network properties. |
+| **`100.x.y.z` Address** | CGNAT virtual IP assigned to each device on the Tailnet, used as the server endpoint. |
+| **Node Sharing** | Grants an external user or account secure access to a single designated node within your Tailnet. |
 
-### ليه "مشاركة" مش شبكة واحدة للكل؟
+### Why Node Sharing Instead of a Single Team Tailnet?
 
-الخطة المجانية بتحدّد عدد **الأشخاص** (6 حسب دليل البدء الرسمي، والأسئلة الشائعة عندهم لسه مكتوب فيها 3، فراجعوا https://tailscale.com/pricing/). وفريقنا 7.
-الحل الرسمي: **كل عضو يعمل حساب مجاني بتاعه، وصاحب اللاب يشارك معاه السيرفر.** التوثيق بيقول إن المشاركة **مبتزوّدش عدد المستخدمين**، وإن العضو بيوصل للسيرفر ده **وبس**.
-> الخطة المجانية للاستخدام **غير التجاري**. مشروع جامعي مناسب غالبًا.
+The Tailscale free tier establishes user limitations per Tailnet. To accommodate teams flexibly without commercial licensing constraints:
+- **Each member registers an individual free account**, maintaining their own Tailnet.
+- **The host owner shares only the Ollama server node** directly with each member's account.
+- Sharing a single machine does not consume additional member seats on the host's primary tier, while restricting team members strictly to the inference host.
 
 ---
 
 <a id="phase-0"></a>
 
-## المرحلة 0: قرارات قبل ما نبدأ (الفريق)
+## Phase 0: Pre-Flight Checklist (Team Alignment)
 
-- [ ] **مين صاحب اللاب القوي؟** كارت NVIDIA بذاكرة أكبر، ثم رام أكبر · موصول بالكهربا · إنترنت مستقر · صاحبه ملتزم.
-- [ ] **الموديل المبدئي:** `qwen3.5:2b` (مثال، والنهائي بيتحدد بالاختبار).
-- [ ] **كل عضو عنده حساب** Google أو Microsoft أو GitHub.
-- [ ] **كل عضو عمل Import للـ VM الموحدة (Xubuntu)** وبتفتح ومعاها إنترنت.
+- [ ] **Identify the Host Machine:** Discrete NVIDIA GPU with high VRAM, sufficient system RAM, stable AC power connection, and reliable internet access.
+- [ ] **Select Baseline Model:** Default: `qwen3.5:2b` (subject to empirical latency validation).
+- [ ] **Identity Accounts:** Every member has an active Google, Microsoft, or GitHub account for Tailscale SSO.
+- [ ] **Standardized VM Deployed:** All members have imported the team Xubuntu VM with operational bridged/NAT networking.
 
 ---
 
 <a id="phase-1"></a>
 
-## المرحلة 1: صاحب اللاب — Ollama على ويندوز
+## Phase 1: Host Machine Setup — Ollama on Windows
 
-**1) ثبّت Ollama** (لو مش مثبّت): حمّله من https://ollama.com/download وشغّل `OllamaSetup.exe`.
-✅ أيقونة Ollama تظهر جنب الساعة.
+**1) Install Ollama:** Download from https://ollama.com/download and run `OllamaSetup.exe`.  
+✅ Ollama tray icon appears in the Windows system notification area.
 
-**2) اتأكد إنه شغال** (PowerShell):
+**2) Verify CLI runtime:** Open PowerShell:
 ```powershell
 ollama -v
 ```
-✅ يظهر رقم الإصدار.
+✅ Prints active Ollama version string.
 
-**3) نزّل الموديل:**
+**3) Pull target model:**
 ```powershell
 ollama pull qwen3.5:2b
 ```
-✅ ينزل لحد ما يخلص من غير خطأ.
+✅ Download and verification complete with exit code 0.
 
-**4) اتأكد إنه موجود:** افتح المتصفح على `http://localhost:11434/api/tags`
-✅ تشوف نص فيه اسم الموديل. **اكتب الاسم زي ما هو.**
+**4) Verify model registry:** Navigate to `http://localhost:11434/api/tags` in your browser.  
+✅ Returns JSON listing containing `"name": "qwen3.5:2b"`. Record the exact model tag.
 
-**5) خلّي Ollama يسمع للشبكة:**
-1. اقفل Ollama من أيقونة الـ tray (Quit).
-2. ابحث عن `environment variables` ← "Edit environment variables for your account".
-3. **New** ← الاسم `OLLAMA_HOST` · القيمة `0.0.0.0:11434` ← OK.
-4. شغّل Ollama من قائمة Start.
+**5) Bind Ollama to all network interfaces:**
+1. Right-click the Ollama tray icon and select **Quit**.
+2. Open Windows Start menu, search for `Environment Variables` → select **Edit the system environment variables**.
+3. Under User Variables, click **New**:
+   - Variable name: `OLLAMA_HOST`
+   - Variable value: `0.0.0.0:11434`
+4. Click **OK** to save and apply.
+5. Launch Ollama again from the Start menu.  
+✅ Ollama binds to `0.0.0.0:11434`. If Windows Firewall prompts for network access, allow it temporarily (we will secure it in Phase 2).
 
-✅ يشتغل عادي. لو ظهرت نافذة Firewall اضغط Allow (هنراجعها في المرحلة 2).
-
-**6) خلّي اللاب ميناموش وقت الشغل:** Settings ← System ← Power & sleep ← Sleep = Never وهو موصول بالكهربا. *(توصية مني)*
+**6) Prevent Host Power Sleep:**  
+Navigate to Windows Settings → System → Power & Sleep → Set **Sleep** to **Never** when plugged into AC power.
 
 ---
 
 <a id="phase-2"></a>
 
-## المرحلة 2: صاحب اللاب — Tailscale على ويندوز
+## Phase 2: Host Machine Setup — Tailscale & Windows Firewall
 
-**1) نزّل وثبّت:** من https://tailscale.com/download/windows (ويندوز 10 أو أحدث).
-✅ أيقونة Tailscale جنب الساعة (لو مش ظاهرة دوس على السهم ^).
+**1) Download and Install Tailscale:** Obtain Windows installer from https://tailscale.com/download/windows.  
+✅ Tailscale icon appears in the system tray.
 
-**2) سجّل دخول:** كليك يمين على الأيقونة ← **Log in** ← اختار حساب Google أو Microsoft أو GitHub.
-✅ الأيقونة تبقى "متصل". (بكده اتعملت **شبكتك الخاصة** وانت صاحبها.)
+**2) Authenticate:** Right-click tray icon → **Log in** → Authenticate using Google, Microsoft, or GitHub SSO.  
+✅ State updates to "Connected". Your primary Tailnet is initialized.
 
-**3) اعرف عنوانك:** افتح https://console.tailscale.com/admin/machines بنفس الحساب.
-✅ تشوف لابك وجنبه عنوان بيبدأ بـ `100.`. **اكتبه، هنسميه "عنوان السيرفر".** أو من PowerShell:
+**3) Identify Server IP Address:** Open https://console.tailscale.com/admin/machines or execute in PowerShell:
 ```powershell
 tailscale ip -4
 ```
+✅ Output displays a virtual IPv4 address starting with `100.`. Note this down as `SERVER_IP`.
 
-**4) الجدار الناري: البورت 11434 لشبكة Tailscale بس:**
-1. افتح **Windows Defender Firewall with Advanced Security**.
-2. **Inbound Rules ← New Rule ← Port ← TCP**، وفي Specific local ports اكتب `11434` ← Allow the connection.
-3. سمّيها `Ollama-Tailscale`.
-4. دبل كليك عليها ← **Scope** ← Remote IP address ← **These IP addresses** ← Add ← `100.0.0.0/8`.
-5. **امسح أو عطّل** أي قاعدة قديمة اسمها `ollama` اتعملت لما ضغطت Allow، لأنها ممكن تسيب البورت مفتوح لأي حد على الشبكة.
+**4) Configure Firewall Inbound Filtering (Restrict Port 11434 to Tailnet):**
+1. Open **Windows Defender Firewall with Advanced Security** (`wf.msc`).
+2. Navigate to **Inbound Rules** → Click **New Rule...**.
+3. Select **Port** → **TCP** → Specific local ports: `11434` → **Allow the connection**.
+4. Rule Name: `Ollama-Tailscale-Only`.
+5. Open properties for `Ollama-Tailscale-Only` → Select **Scope** tab.
+6. Under **Remote IP address**, choose **These IP addresses** → Click **Add...** → Enter `100.0.0.0/8` (the complete Tailscale CGNAT subnet).
+7. Delete or disable any generic, unrestricted `ollama.exe` inbound rules that permit 0.0.0.0/0 traffic.  
+> ⚠️ Ollama lacks native authentication tokens. Restricting remote access strictly to the `100.0.0.0/8` subnet prevents unauthorized external network access.
 
-> Ollama مفيهوش تسجيل دخول، فمتفتحوهوش للإنترنت. (أسماء الخيارات في الجدار الناري ممكن تختلف شوية بين إصدارات ويندوز.)
-
-**5) اختبر من نفس اللاب:** افتح المتصفح على `http://عنوان_السيرفر:11434`
-✅ تشوف `Ollama is running`.
+**5) Verify Local Endpoint:** Navigate to `http://<SERVER_IP>:11434` in the host browser.  
+✅ Displays plain text response: `Ollama is running`.
 
 ---
 
 <a id="phase-3"></a>
 
-## المرحلة 3: صاحب اللاب — الـ VM بتاعته
+## Phase 3: Host Machine — Guest VM Configuration
 
-> هتعمل نفس اللي هيعمله باقي الفريق، بس **من غير مشاركة** لأن الـ VM هتبقى في شبكتك إنت.
+> The host machine's own guest VM connects directly to the host Tailnet under the same account without requiring node sharing.
 
-**1) ثبّت Tailscale جوه الـ VM** (Terminal، محتاج إنترنت وباسورد `sudo`):
+**1) Install Tailscale inside guest VM:**
 ```bash
 curl -fsSL https://tailscale.com/install.sh | sh
 ```
-✅ السكربت يخلص من غير خطأ.
+✅ Package installation finishes cleanly.
 
-**2) سجّل دخول:**
+**2) Authenticate:**
 ```bash
 sudo tailscale up
 ```
-هيطلعلك **رابط**. افتحه في Firefox جوه الـ VM، واختار **نفس الحساب اللي سجّلت بيه على ويندوز** ووافق.
-✅ الـ Terminal يرجعلك من غير خطأ.
+Open the generated authentication URL in the guest browser, log in using the **same account used on the Windows host**, and authorize the machine.  
+✅ Command returns to shell prompt with status connected.
 
-**3) اتأكد:**
+**3) Verify Peer Status:**
 ```bash
 tailscale status
 ```
-✅ تشوف الـ VM ولابك (ويندوز) في القايمة.
+✅ Both the guest VM and Windows host node appear in the active peer table.
 
-**4) اختبر الاتصال بالسيرفر:**
+**4) Verify Endpoint Connectivity:**
 ```bash
-curl http://عنوان_السيرفر:11434
+curl http://<SERVER_IP>:11434
 ```
-(عنوان السيرفر من المرحلة 2، خطوة 3.)
-✅ ترجع `Ollama is running`.
+✅ Returns `Ollama is running`.
 
-**كمّل لـ** [الأوامر المشتركة](#commands) ثم [الاختبار النهائي](#final-test).
+Proceed to [Common Commands](#commands) and [Final Verification](#final-test).
 
 ---
 
 <a id="phase-4"></a>
 
-## المرحلة 4: كل عضو — الـ VM + قبول مشاركة السيرفر
+## Phase 4: Team Guest VMs & Tailscale Node Sharing
 
-> ينفّذها **كل عضو** جوه الـ Xubuntu VM بتاعته (غير صاحب اللاب).
+> Performed by each team member inside their respective Xubuntu VM.
 
-**1) ثبّت Tailscale جوه الـ VM:**
+**1) Install Tailscale in Guest VM:**
 ```bash
 curl -fsSL https://tailscale.com/install.sh | sh
 ```
-✅ السكربت يخلص من غير خطأ.
+✅ Script completes with exit code 0.
 
-**2) سجّل دخول بحساب خاص بيك:**
+**2) Authenticate with Individual Personal Account:**
 ```bash
 sudo tailscale up
 ```
-افتح الرابط في Firefox واختار **حساب Google أو Microsoft أو GitHub بتاعك** ووافق.
-> ⚠️ ده **حسابك إنت** مش حساب صاحب اللاب. **افتكر أنهي حساب استخدمت**، هتحتاجه في الخطوة 5.
+Open the generated URL and log in with your **own personal SSO account** (not the host owner's credentials).  
+> ⚠️ Use your personal account to ensure proper isolation. Remember the identity used, as the invitation must match.
 
-**3) اتأكد:**
+**3) Check Local Node State:**
 ```bash
 tailscale status
 ```
-✅ تشوف الـ VM بتاعتك.
+✅ Displays your guest VM node.
 
-**4) ابعت إيميلك لصاحب اللاب على الخاص** (مش على الجروب). أي إيميل بتقراه.
+**4) Transmit SSO Email to Host Owner:** Send your account email securely via direct message.
 
-**5) صاحب اللاب علام بيشارك السيرفر معاك:**
+**5) Host Owner Shares Server Node:**
+1. Host owner opens https://console.tailscale.com/admin/machines.
+2. Locates the server host node → clicks the context menu (⋯) → **Share**.
+3. Selects **Share by email** → enters the team member's email → **Share**.
+4. Alternatively, generates a one-time single-use invite link. Do not enable reusable links.
 
-> 👑 **دي خطوة صاحب اللاب علام، لكل عضو:**
-> 1. يفتح https://console.tailscale.com/admin/machines بحسابه.
-> 2. يدوس على النقط التلاتة (⋯) جنب **جهاز السيرفر** ← **Share**.
-> 3. تبويب **Share by email** ← يكتب إيميل العضو ← **Share**. العضو هيوصله رابط دعوة **مخصص ليه لمرة واحدة**.
->
-> **بديل:** **Copy invite link**، ويبعته على خاص. الرابط **زي الباسورد**: أي حد معاه يوصل للسيرفر، فمتحطوهوش في جروب، **ومتفعّلوش "Reusable link"**. الرابط اللي ما اتقبلش بينتهي بعد 30 يوم.
+**6) Member Accepts Invitation:**
+1. Open the invitation link sent to your email.
+2. Sign in using the **exact account used to authenticate the VM in Step 2**.
+3. Accept the shared node invitation.  
+✅ Shared server node appears in your Tailscale admin console under Machines.
 
-**6) العضو يقبل الدعوة:**
-1. افتح الرابط (من الإيميل).
-2. **سجّل دخول بنفس الحساب اللي سجّلت بيه الـ VM في الخطوة 2.** ده مهم جدًا، عشان السيرفر يظهر في نفس الشبكة اللي فيها الـ VM.
-3. وافق.
-
-✅ السيرفر يظهر في https://console.tailscale.com/admin/machines عندك.
-
-**7) اعرف عنوان السيرفر واختبره:**
+**7) Verify Shared Node Resolution:**
 ```bash
 tailscale status
-curl http://عنوان_السيرفر:11434
+curl http://<SERVER_IP>:11434
 ```
-خد العنوان من `tailscale status` **عندك إنت** (غالبًا هو نفس عنوانه عند صاحبه، بس متفترضش).
-✅ ترجع `Ollama is running`.
+Obtain `<SERVER_IP>` from your local `tailscale status` output.  
+✅ Returns `Ollama is running`.
 
-### 🔧 لو فشل
+### 🔧 Troubleshooting Reference Matrix
 
-| المشكلة | الحل |
-|---|---|
-| الـ VM مش متصلة | `sudo tailscale up` تاني |
-| فتحت الدعوة بحساب غلط | افتحها تاني بحساب الـ VM |
-| صاحب اللاب لسه ما شاركش، أو الرابط انتهى | يعمل Share جديد |
-| Ollama واقف أو اللاب نايم | راجع [المرحلة 1](#phase-1) خطوة 5 و6 |
-| الجدار الناري | راجع [المرحلة 2](#phase-2) خطوة 4 |
-| سياسات الوصول (Access control) | التوثيق بيقول راجعها عند الطرفين |
-| جلسة Tailscale انتهت | `sudo tailscale up --force-reauth` |
-
-> السيرفر المشارَك **بيرد** على طلباتكم بس **مبيبدأش اتصال** بأجهزتكم (الوضع الافتراضي)، وده مناسب لأن Ollama بيرد بس.
-
-**كمّل لـ** [الأوامر المشتركة](#commands) ثم [الاختبار النهائي](#final-test).
+| Symptom | Root Cause | Remediation Step |
+|---|---|---|
+| Guest VM node offline | Tailscale daemon not active | Run `sudo tailscale up` |
+| Server not visible in console | Invitation accepted under mismatched SSO identity | Log out and accept invite with VM identity |
+| Expired invite link | Invite timed out (30-day limit) or revoked | Host owner generates fresh single-use invite |
+| Connection timeout (port 11434) | Host asleep or Ollama service stopped | Verify Phase 1 steps 5 & 6 on host |
+| Connection refused by host | Host firewall blocking `100.0.0.0/8` | Inspect Windows Defender rule `Ollama-Tailscale-Only` |
+| Peer authentication expired | Tailscale session expiry triggered | Run `sudo tailscale up --force-reauth` |
 
 ---
 
 <a id="commands"></a>
 
-## الأوامر المشتركة وليه كتبناها
+## Common Commands & Environment Configuration
 
-دي الأوامر اللي **كل واحد فينا** (صاحب اللاب وباقي الأعضاء) بينفّذها جوه الـ VM بتاعته.
+Executed by all team members inside their respective guest VMs to ensure seamless code portability across different workstation setups.
 
-### 1) الأوامر الأساسية
+### 1) Routine Network Verification
 
-| الأمر | بيعمل إيه |
+| Command | Operational Purpose |
 |---|---|
-| `curl -fsSL https://tailscale.com/install.sh \| sh` | يثبّت Tailscale |
-| `sudo tailscale up` | يسجّل دخول ويوصّل الـ VM بالشبكة |
-| `tailscale status` | يوريك الأجهزة المتصلة وعناوينها |
-| `curl http://عنوان_السيرفر:11434` | يتأكد إن السيرفر شغال (يرد `Ollama is running`) |
+| `curl -fsSL https://tailscale.com/install.sh \| sh` | Install Tailscale client |
+| `sudo tailscale up` | Authenticate and register node with Tailnet |
+| `tailscale status` | List active mesh peers and assigned `100.x` addresses |
+| `curl http://<SERVER_IP>:11434` | Health check verifying Ollama daemon availability |
 
-### 2) أوامر الإعدادات (ضبطها مرة واحدة)
+### 2) Environment Variable Persistence
+
+Set persistent environment variables in `~/.bashrc`:
 
 ```bash
-echo 'export OLLAMA_URL=http://عنوان_السيرفر:11434' >> ~/.bashrc
+echo 'export OLLAMA_URL=http://<SERVER_IP>:11434' >> ~/.bashrc
 echo 'export OLLAMA_MODEL=qwen3.5:2b' >> ~/.bashrc
 source ~/.bashrc
-echo $OLLAMA_URL
+echo "Configured endpoint: $OLLAMA_URL with model: $OLLAMA_MODEL"
 ```
 
-(بدّل `عنوان_السيرفر` بالعنوان الحقيقي اللي شكله `100.x.x.x`، و`qwen3.5:2b` باسم الموديل اللي نزّله صاحب اللاب.)
+*(Replace `<SERVER_IP>` with the actual `100.x.y.z` address of the Ollama server node).*
 
-**ليه كتبناها؟** كل واحد محتاج يعرف **عنوان السيرفر** و**اسم الموديل**. بدل ما نكتبهم جوه الكود (ونعدّلهم عند كل واحد)، بنحفظهم في **إعدادات** والكود يقراها. تشبيه: العنوان مكتوب في **ورقة جنب الباب**، مش محفور على الحيطة.
+**Design Rationale:** Hardcoding server IPs inside Python modules breaks repository portability. Storing endpoint metadata in environment variables decouples codebase logic from machine-specific network topography:
 
-| السطر | معناه |
-|---|---|
-| `export OLLAMA_URL=...` | يعمل **إعداد** اسمه `OLLAMA_URL` وقيمته عنوان السيرفر |
-| `export OLLAMA_MODEL=...` | يعمل إعداد باسم الموديل |
-| `>> ~/.bashrc` | **يحفظهم** في ملف بيتقرا كل ما تفتح Terminal، فمبيضيعوش لما تقفله |
-| `source ~/.bashrc` | **يطبّقهم دلوقتي** من غير ما تقفل الـ Terminal |
-| `echo $OLLAMA_URL` | **يطبع** القيمة عشان تتأكد |
-
-**فايدتها للكود:** الكود بيقراهم كده، ومحتاج يتكتب مرة واحدة ويشتغل عند الكل:
 ```python
 import os
+
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:2b")
 ```
-
-**تنبيهات:**
-- لو منسيتش تضبط `OLLAMA_URL`، الكود هيستخدم `localhost`، ومعناها جوه الـ VM "الـ VM نفسها" مش السيرفر، فهيفشل.
-- `>>` بيضيف في آخر الملف كل مرة، فلو شغّلته مرتين هيتكرر السطر. الأخير هو اللي بيتطبّق، وتنضّفه بـ `nano ~/.bashrc`.
 
 ---
 
 <a id="final-test"></a>
 
-## الاختبار النهائي للموديل
+## Final Model Inference Verification
 
-بعد ما ضبطت الإعدادات، جرّب إن الموديل بيرد فعلًا.
+Execute these verification checks to validate complete end-to-end functionality.
 
-**1) السيرفر شغال؟**
+**1) Endpoint Availability:**
 ```bash
 curl $OLLAMA_URL
 ```
-✅ ترجع `Ollama is running`.
+✅ Expected response: `Ollama is running`.
 
-**2) الموديل ظاهر؟**
+**2) Model Registry Check:**
 ```bash
 curl $OLLAMA_URL/api/tags
 ```
-✅ تشوف اسم الموديل.
+✅ Expected response: JSON document containing the target model tag.
 
-**3) خلّي الموديل يرد:**
+**3) Single-Shot Inference Test:**
 ```bash
-curl "$OLLAMA_URL/api/generate" -d "{\"model\": \"$OLLAMA_MODEL\", \"prompt\": \"اكتب كلمة واحدة بس: تم\", \"stream\": false}" | python3 -m json.tool --no-ensure-ascii
+curl "$OLLAMA_URL/api/generate" \
+  -H "Content-Type: application/json" \
+  -d "{\"model\": \"$OLLAMA_MODEL\", \"prompt\": \"Reply with exactly one word: Ready\", \"stream\": false}" \
+  | python3 -m json.tool --no-ensure-ascii
 ```
-✅ تشوف رد فيه حقل `"response"`. **أول طلب ممكن يتأخر** لأن الموديل بيتحمّل في الذاكرة.
+✅ Returns JSON response containing `"response": "Ready"`. Note: First prompt execution incurs initial model loading into VRAM.
 
-لو الرد فاضي أو اتأخر جدًا، ممكن الموديل بيفكر قبل ما يرد (حقل `"thinking"`). جرّب تضيف `\"think\": false,` قبل `\"stream\"` في الأمر.
+*Optimization Note:* If inference latency is elevated due to reasoning overhead, include `"think": false` inside the request payload:
+```bash
+curl "$OLLAMA_URL/api/generate" \
+  -d "{\"model\": \"$OLLAMA_MODEL\", \"prompt\": \"...\", \"think\": false, \"stream\": false}"
+```
 
-| النتيجة | معناها |
+| Verification Result | Operational Status |
 |---|---|
-| كل الخطوات نجحت | **جاهز** ✅ |
-| الأولى فشلت | راجع `echo $OLLAMA_URL` و[جدول المشاكل](#phase-4) |
-| التانية مفيهاش الموديل | اسم الموديل غلط، أو صاحب اللاب لسه منزلوش |
-| التالتة فشلت أو بطيئة جدًا | الموديل كبير على الجهاز، أو مشكلة في الشبكة |
+| All 3 verification steps pass | **Fully Operational** ✅ |
+| Step 1 fails | Check `$OLLAMA_URL` assignment and review [Troubleshooting Matrix](#phase-4) |
+| Step 2 missing model tag | Model tag misspelled or host download incomplete |
+| Step 3 timeout or failure | Insufficient host VRAM or severe network latency |
 
 ---
 
 <a id="fallback"></a>
 
-## بديل: Ollama جوه الـ VM من غير سيرفر
+## Standalone Fallback: Local VM Ollama (No Host Dependency)
 
-لو مفيش سيرفر أو الشبكة مش شغالة:
+If network connectivity is disrupted or the host machine is offline during local development:
+
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
 ollama pull qwen3.5:2b
 curl http://localhost:11434/api/tags
 ```
-بعدها اضبط `OLLAMA_URL` على `http://localhost:11434`. لازم الموديل **يكفي في رام الـ VM**.
 
-### قرارات مفتوحة
-- [ ] الموديل النهائي (بالاختبار على أضعف جهاز).
-- [ ] هل العرض هيعتمد على السيرفر؟ لو أيوه يتكتب في التقرير كمتطلب، والكود يرجع للبديل لو السيرفر مردّش.
-
-### لازم الفريق يجرّبه ويقيسه
-- إن Tailscale بيشتغل فعلًا جوه الـ VM على VMware عندكم.
-- زمن الرد من الـ VM للسيرفر، وتأثير 7 أشخاص في نفس الوقت.
-- عدد المستخدمين المسموح في الخطة المجانية وقت التسجيل.
+Update your local shell environment to use the local fallback daemon:
+```bash
+export OLLAMA_URL=http://localhost:11434
+```
+Ensure the guest VM is allocated at least 4 GB of RAM to execute `2b` quantized weights comfortably on CPU.
 
 ---
 
 <a id="sources"></a>
 
-## المصادر
+## Official References
 
-**Tailscale (توثيق رسمي):**
-- تثبيت على Linux: https://tailscale.com/docs/install/linux
-- تثبيت على Windows: https://tailscale.com/docs/install/windows
-- مشاركة الأجهزة: https://tailscale.com/docs/features/sharing
-- الدعوة مقابل المشاركة: https://tailscale.com/docs/reference/inviting-vs-sharing
-- دليل البدء (6 مستخدمين مجانًا): https://tailscale.com/docs/how-to/quickstart
-- الأسعار (راجعوها وقت التسجيل): https://tailscale.com/pricing/ و https://tailscale.com/pricing/faq
+**Tailscale Documentation:**
+- Linux Client Installation: https://tailscale.com/docs/install/linux
+- Windows Client Installation: https://tailscale.com/docs/install/windows
+- Node Sharing Architecture: https://tailscale.com/docs/features/sharing
+- Invitations vs. Node Sharing: https://tailscale.com/docs/reference/inviting-vs-sharing
+- Tailscale Free Tier Capabilities: https://tailscale.com/docs/how-to/quickstart
 
-**Ollama:**
-- تثبيت على لينكس: https://docs.ollama.com/linux
-- الـ FAQ (`OLLAMA_HOST`): https://docs.ollama.com/faq.md
-- الـ API (`/api/generate`): https://docs.ollama.com/api/generate.md
-- خطوات ويندوز والجدار الناري: https://www.blackmoreops.com/how-to-access-ollama-from-another-pc-on-your-local-network/
-- خطر فتح Ollama من غير مصادقة: https://www.digitalcitizen.life/how-to-expose-ollama-to-the-network-on-windows/
-- مثال فريق بيشارك Ollama عبر Tailscale وقاعدة الجدار الناري: https://git.azcomputerguru.com/azcomputerguru/claudetools/commit/59955110113268131f626def6c8ceb8f730d4674
+**Ollama Documentation:**
+- Linux Daemon Guide: https://docs.ollama.com/linux
+- Network Binding FAQ (`OLLAMA_HOST`): https://docs.ollama.com/faq.md
+- HTTP Generate Endpoint Specification: https://docs.ollama.com/api/generate.md
 
-**Bash:**
-- ملفات البدء (`~/.bashrc`): https://www.gnu.org/s/bash/manual/html_node/Bash-Startup-Files.html
+**GNU Bash:**
+- Shell Startup File Hierarchy (`~/.bashrc`): https://www.gnu.org/s/bash/manual/html_node/Bash-Startup-Files.html

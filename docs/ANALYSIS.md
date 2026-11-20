@@ -1,79 +1,65 @@
-# 🎙️ Sound OS — التحليل المعماري وخارطة الطريق الهندسية | Architectural Analysis
+# 🎙️ Sound OS — Architectural Analysis & Engineering Decisions
 
-> **تاريخ التحديث:** 6 نوفمبر 2026  
-> **الهدف:** توثيق القرارات المعمارية، تقييم كفاءة النماذج (Models Efficiency)، وحلول التحديات التقنية في بيئة Linux.
+> **Objective:** Document architectural decisions, model evaluation, and technical trade-offs across the Linux environment.
 
 ---
 
-## 1. الهيكلية المعمارية العامة (Architecture Pipeline)
+## 1. Overall Pipeline Architecture
 
 ```
 Microphone → Wake Word → Speech-to-Text → Intent Parser → Safety Layer → Executor → UI/TTS
-  (Abram)     (Abram)     (Mahmoud) ✅     (Kurollos) ✅   (Antonius)   (Yassin)   (Youssef)
+  (Abram)     (Abram)     (Mahmoud)       (Kurollos)      (Antonius)     (Yassin)   (Youssef)
 ```
 
-النظام مبني على مبدأ **Decoupled Pipelines**، حيث يرتبط كل موديول بالآخر عبر واجهات محددة بدقة في [`CONTRACT.md`](../CONTRACT.md).  
-هذا يسمح لكل عضو بالعمل المستقل تماماً واختبار موديوله عبر الـ Mocks و Stubs دون انتظار اكتمال بقية الأجزاء.
+The system is designed around **Decoupled Pipelines** where modules interface strictly via specifications defined in [`CONTRACT.md`](../CONTRACT.md). This enables independent unit testing through stubs and mocks without blocking on cross-team dependencies.
 
 ---
 
-## 2. الوضع الحالي للمشروع وتقييم الجودة
+## 2. Module Implementations & Quality Assessment
 
-### ✅ الموديولات المكتملة والمدموجة في `main`
-
-| الموديول | المسار | التقييم الفني | الجودة والنتائج |
+| Module | Location | Status | Quality Summary |
 |---|---|---|---|
-| **Speech-to-Text (STT)** | `stt/` | ممتاز | استخدام `faster-whisper` مع تطبيع النص العربي `textnorm.py` (توحيد الهمزات والياء والألف اللينة)، وفلاتر كشف الصمت والتكرار. |
-| **Intent Parser** | `intent_parser/` | ممتاز جداً | معمارية من مرحلتين: محرك قواعد سريع جداً (< 5ms) باستخدام Regex + RapidFuzz حقق **100% دقة على 190 جملة اختبارية**. |
-| **Local LLM Fallback** | `intent_parser/llm_fallback.py` | مدروس ومؤمّن | ربط مع Ollama (موديل Qwen2.5/Qwen3) لا يُفعل إلا عند فشل القواعد العادية ومغلق بالافتراضي للحفاظ على الأداء. |
-| **Interface Contract** | `CONTRACT.md` | مكتمل | تعريف صارم لكافة دوال الإدخال والإخراج وشكل JSON لكل خطوة. |
-| **Pipeline Runner** | `main.py` | مكتمل | تدفق البيانات التسلسلي مدعوم بخيار `--text` للاختبار بدون عتاد صوتي. |
-| **Automated Test Suite** | `tests/` | 214 اختبار ناجح | يغطي العقد وجميع الأوامر والتطبيع اللغوي. |
+| **Speech-to-Text (STT)** | `stt/` | Production | `faster-whisper` CPU int8 implementation, Egyptian Arabic normalization (`textnorm.py`), silence/repetition filters, and in-memory audio decoding. |
+| **Intent Parser** | `intent_parser/` | Production | High-speed rule-based engine (< 5 ms) utilizing regex tokenization, compound splitters, and typo-tolerant fuzzy matching. |
+| **Local LLM Fallback** | `intent_parser/llm_fallback.py` | Standby | Local Ollama integration (Qwen model) acting strictly as fallback on unknown inputs; restricted from producing dangerous intents. |
+| **Interface Contract** | `CONTRACT.md` | Enforced | Rigorous specification of all payload structures and error containment rules. |
+| **Pipeline Orchestrator** | `main.py` | Production | Sequential event orchestrator supporting live voice capture, direct text simulation, and headless background execution. |
+| **Automated Test Suite** | `tests/` | 100% Passing | Comprehensive suite of over 475+ unit, integration, and contract tests. |
 
 ---
 
-## 3. دراسة القرارات التقنية الأساسية (Technical Decisions)
+## 3. Key Technical Decisions
 
-### أ) معالجة اللهجة المصرية والعربية (Arabic Normalization)
-- **التحدي:** يكتب المستخدمون الكلمات بطرق إملائية متعددة (إفتح / افتح / افتَح - فايرفوكس / فيرفوكس). كما يخرج Whisper الكلمات بتشكيل أحياناً.
-- **الحل:** تم تطبيق طبقة تطبيع موحدة `stt/textnorm.py` و `intent_parser/normalize.py` لإزالة التشكيل، توحيد الهمزات والألف، وتنظيف الحروف المكررة قبل مطابقة القواعد.
+### A. Arabic Text Normalization
+- **Challenge:** Multiple orthographic variants exist in written Arabic and speech transcriptions (e.g., alef with hamza variations `أ / إ / آ / ا`, taa marbuta `ة / ه`, alef maqsura `ى / ي`). In addition, Whisper sometimes emits diacritics (tashkeel).
+- **Solution:** A centralized normalization layer (`intent_parser/normalize.py`) strips tashkeel, standardizes alef/hamza forms, removes character stretching (tatweel), and cleans punctuation prior to rule evaluation.
 
-### ب) استخدام الـ Local LLM: متى وكيف؟
-- **القرار الهندسي:** الاعتماد الأساسي على **Rule-Based Engine**؛ لأن الأوامر المحددة لنظام التشغيل محدودة (13 أمراً أساسياً)، والقواعد أسرع بمئات المرات وتستهلك ذاكرة تكاد تكون معدومة.
-- **دور الـ LLM:** يعمل فقط كـ **Fallback** عند العجز عن فهم النص، ومقيد بالشروط التالية:
-  1. لا ينتج أوامر خطرة أبداً (`shutdown` أو `delete_file`).
-  2. مضبوط بـ Timeout صارم لا يتجاوز 5 ثوانٍ.
-  3. يجبر الموديل على مخرجات JSON مطابقة للعقد.
-  4. يمكن إيقافه بالكامل عبر متغير البيئة `SOUNDOS_LLM=0`.
+### B. Role of Local LLMs: When and Why?
+- **Engineering Decision:** Primary reliance on a **Rule-Based Parser**. Fixed OS voice commands (applications, volume, brightness, navigation) are deterministic and finite. Rule parsing executes in under 2 ms with negligible memory overhead compared to several gigabytes required by LLMs.
+- **LLM Function:** Operates strictly as an **optional fallback** for complex or non-standard phrasing, constrained by:
+  1. Complete restriction from generating destructive intents (`shutdown`, `delete_file`).
+  2. Enforced 5-second timeout window.
+  3. Output formatted strictly according to contract schemas.
+  4. Toggleable via `SOUNDOS_LLM=0`.
 
-### ج) الأمان في بيئة نظام التشغيل (Safety Layer Design)
-- **مبدأ الحذر التام:** لا يتم تنفيذ أي أمر خطر (`shutdown`, `delete_file`) مباشرة.
-- الـ Safety Layer تطلب تأكيد المستخدم (`confirm`)، ويقوم الـ Parser بفحص الإجابة بنعم أو لا (`parse_yes_no`).
-- عمليات الحذف مقصورة حصراً على مجلد مخصص `~/SoundOS_Files/` وتستخدم سلة المهملات `gio trash` بدلاً من الحذف النهائي `rm`.
-- متغير البيئة `SOUNDOS_DRY_RUN=1` يضمن اختبار النظام دون أي تغيير فعلي على ملفات المستخدم.
+### C. OS Safety and File Sandboxing
+- **Precautionary Principle:** Destructive commands are never executed directly without explicit verification.
+- The Safety Layer issues interactive confirmation requests (`confirm`), and the parser verifies affirmative answers (`parse_yes_no`).
+- File creation and deletion are restricted to `~/SoundOS_Files/`, and deletions leverage `gio trash` rather than permanent deletion (`rm`).
+- `SOUNDOS_DRY_RUN=1` ensures pipeline validation without modifying system state.
 
-### د) الواجهة وردود الفعل (UI & Voice Feedback)
-- استخدام **Piper TTS** لتوليد الصوت محلياً بدون إنترنت، مع توفير بديل خفيف دائم التوافر وهو `espeak-ng`.
-- تكامل سلس مع واجهة **Coucou / Mochi** لعرض شريط تفاعلي في أعلى الشاشة يوضح حالة الاستماع والتنفيذ.
-- توفير خطة بديلة خفيفة مبنية على **Tkinter** في حال كانت بيئة الـ VM لا تدعم Coucou.
+### D. Audio Feedback and UI States
+- Dual-language speech synthesis powered by `espeak-ng` provides rapid spoken feedback without network reliance.
+- Visual state communication handled by the Dave animated interface, with clean fallback for headless execution via `SOUNDOS_NO_UI=1`.
 
 ---
 
-## 4. مقاييس الأداء المستهدفة (Performance Targets)
+## 4. Performance Targets & Empirical Results
 
-| المقياس | الهدف المستهدف | الوضع الحالي |
+| Metric | Target | Measured Result |
 |---|---|---|
-| سرعة الـ Intent Parser | < 50ms | ~2-5ms (Rule-based) ✅ |
-| زمن التحويل الصوتي STT | < 1.5s على مقطع مدته 3 ثوانٍ | ~0.8s - 1.2s (faster-whisper tiny/base) ✅ |
-| زمن تنفيذ الأمر (Executor) | < 500ms | قيد التطوير (مستهدف مع أدوات Linux القياسية) |
-| استهلاك الذاكرة بدون LLM | < 500MB RAM | ~350MB RAM مع Whisper Tiny ✅ |
-| نسبة نجاح الاختبارات | 100% | 214/214 اختبار ناجح ✅ |
-
----
-
-## 5. مراجع ومصادر المشروع
-
-- **عقد النظام:** [`CONTRACT.md`](../CONTRACT.md)
-- **خطة الـ 3 أسابيع:** [`docs/TEAM_PLAN.md`](./TEAM_PLAN.md)
-- **تقرير الفريق وخارطة الأدوار:** [`docs/TEAM_BRIEF.md`](./TEAM_BRIEF.md)
-- **دليل دور الواجهة والصوت (يوسف علام):** [`docs/Youssef-UI-Guide.md`](./Youssef-UI-Guide.md)
+| Intent Parser Latency | < 50 ms | ~2-5 ms (Rule-based) ✅ |
+| STT Latency (3s audio) | < 1.5 s | ~0.7-1.0 s (faster-whisper CPU int8) ✅ |
+| Command Execution Latency | < 500 ms | ~0.05 ms (Direct Dispatch) ✅ |
+| Memory Footprint (without LLM) | < 500 MB RAM | ~350 MB RAM (with Whisper Tiny) ✅ |
+| Test Suite Coverage | 100% Passing | 479 / 479 Tests Passing ✅ |

@@ -1,115 +1,105 @@
-# 🧪 دليل التجربة والاختبار (لكل عضو في الفريق)
+# 🧪 Testing & Validation Guide (For All Team Members)
 
-الهدف: كل واحد يجرّب المشروع على جهازه (أو الـ VM)، ويبلّغ بنتيجة واضحة. التجربة الحقيقية على أجهزة مختلفة هي اللي بتكشف مشاكل الميكروفون والصوت واللهجات، وده اللي الاختبارات الآلية مش بتغطيه.
+**Goal:** Enable every team member to test Sound OS on their local machine (or VM) and report clear, reproducible results. Real testing across diverse hardware reveals microphone, audio level, and accent discrepancies that automated tests cannot capture.
 
-> **قاعدة أمان قبل أي حاجة:** شغّل دايمًا `export SOUNDOS_DRY_RUN=1` في التيرمنال قبل التجربة. من غيرها، "اقفل الجهاز" + "ايوه" **هيطفي جهازك فعلًا**. شيلها بس في الديمو النهائي.
+> [!IMPORTANT]
+> **Safety Rule:** Always export `SOUNDOS_DRY_RUN=1` in your terminal session before testing. Without it, confirming "اقفل الجهاز" (Shutdown) with "yes" will **actually shut down your machine**. Only disable dry-run mode during final live demos.
 
 ---
 
-## 1) التجهيز (10 دقايق، مرة واحدة)
+## 1. Setup (10 Minutes, One-Time)
 
 ```bash
-git pull                                   # أحدث نسخة (أو git clone أول مرة)
+git pull                                   # Fetch latest updates
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-sudo apt install libportaudio2 alsa-utils wmctrl espeak-ng   # على Ubuntu / Xubuntu
-python scripts/doctor.py                   # يفحص الجهاز ويقولك إيه الناقص
+sudo apt install libportaudio2 alsa-utils wmctrl espeak-ng   # On Ubuntu / Xubuntu
+python scripts/doctor.py                   # Check hardware & dependencies
 ```
 
-`doctor.py` بيطلّع ✅ / ⚠️ / ❌ ومعاه الأمر اللي يصلّح كل مشكلة. صلّح الـ ❌ من فوق لتحت وأعد التشغيل لحد ما تختفي.
-مشكلة الميكروفون في الـ VM؟ فعّل **Sound Card → Connect at power on** في VMware، وصلاحية الميكروفون في ويندوز، وبعدين `python check_mic.py`.
+`doctor.py` outputs ✅ / ⚠️ / ❌ with actionable fix commands. Resolve any ❌ items before proceeding.  
+**Microphone issues inside a VM?** Enable **Sound Card → Connect at power on** in VMware settings, grant microphone permissions in the host OS, and run `python check_mic.py`.
 
 ```bash
-pytest -q          # لازم كله ينجح (حوالي 480 اختبار). لو حاجة فشلت ابعتلي أول خطأ
+pytest -q          # All 475+ tests must pass. If anything fails, note the error.
 ```
 
 ---
 
-## 2) تجربة بالنص (من غير ميكروفون)
+## 2. Text Simulation (No Microphone Required)
 
 ```bash
 export SOUNDOS_DRY_RUN=1
 python main.py --text "افتح المتصفح"
 ```
 
-جرّب الجمل دي. العمود التالت هو اللي **المفروض** يحصل:
+Test the representative phrases below. The second column shows the expected behavior:
 
-| الجملة | النية المتوقعة | ملاحظة |
+| Input Phrase | Expected Intent | Notes |
 |---|---|---|
-| افتح المتصفح | `open_app` (firefox) | |
-| علي الصوت / وطي الصوت / اكتم الصوت | `volume_up` / `volume_down` / `mute` | |
-| علي السطوع | `brightness_up` | في الـ VM بيشتغل بالـ xrandr |
-| افتح الحاسبة / افتح الترمينال / افتح الملفات | `open_app` | |
-| افتح التحميلات | `open_folder` | |
-| ابحث عن طقس القاهرة | `web_search` | محتاج إنترنت |
-| شغل موسيقى | `play_media` | |
-| اقفل التطبيق | `close_app` (النافذة الحالية) | محتاج `wmctrl` على X11 |
-| افتح المتصفح وعلي الصوت | أمرين ورا بعض | |
-| Open calculator / Turn up volume | إنجليزي عادي | |
-| اقفل الجهاز | بيسأل "متأكد؟" | قول "ايوه" ← محاكاة بس مع DRY_RUN |
+| `افتح المتصفح` | `open_app` (firefox) | Launches browser |
+| `علي الصوت` / `وطي الصوت` / `اكتم الصوت` | `volume_up` / `volume_down` / `mute` | Adjusts volume |
+| `علي السطوع` | `brightness_up` | Uses xrandr inside VMs |
+| `افتح الحاسبة` / `افتح الترمينال` / `افتح الملفات` | `open_app` | Launches target app |
+| `افتح التحميلات` | `open_folder` (downloads) | Opens folder |
+| `ابحث عن طقس القاهرة` | `web_search` | Requires active internet |
+| `شغل موسيقى` | `play_media` | Opens default player |
+| `اقفل التطبيق` | `close_app` (current active window) | Requires `wmctrl` on X11 |
+| `افتح المتصفح وعلي الصوت` | Multi-action compound execution | Executes sequentially |
+| `Open calculator` / `Turn up volume` | Standard English commands | Works identically |
+| `اقفل الجهاز` | Triggers "Are you sure?" confirmation | Reply "yes" -> dry-run simulation |
 
-**لازم ما ينفّذش حاجة (المفروض يقول "مفهمتش"):** `الساعة كام`، `افتح الباب`، `اقفل النور`، `احكيلي نكتة`، `اطفي الجهار` (غلطة في كلمة الجهاز، الإطفاء ما بيتنفذش من تصحيح الأخطاء أبدًا).
-لو واحدة منهم اتنفذت: ده بُق مهم، بلّغ عنه.
+**Negative Test Cases (Must NOT trigger any command — must return "unknown"):**  
+`الساعة كام` (What time is it), `افتح الباب` (Open the door), `اقفل النور` (Turn off the light), `احكيلي نكتة` (Tell me a joke), `اطفي الجهار` (Misspelling of shutdown; destructive commands never trigger via fuzzy matching).
 
 ---
 
-## 3) تجربة بالصوت
+## 3. Live Voice Testing (Microphone)
 
 ```bash
 export SOUNDOS_DRY_RUN=1
 python main.py
 ```
 
-قول **"ديف"** (أو Hey Dave) ثم الأمر. جرّب كل جملة من الجدول فوق **3 مرات** (ويفضّل مرة بضوضاء خفيفة: مروحة أو تلفزيون واطي).
-سجّل لكل جملة: اتفهمت صح كام مرة من 3؟ ولو غلط، المطبوع في التيرمنال كان إيه (`Heard Input`)؟
+Say **"Hey Dave"** or **"ديف"**, followed by your command. Repeat each phrase **3 times** (ideally with low ambient noise like a desk fan):
+Record: Did the system understand correctly 3 out of 3 times? If not, what text was printed in `Heard Input`?
 
-نقاط تركيز:
-- **اللهجة:** جرّب نفس الأمر بالفصحى والعامية ("وطي الصوت" / "خفض الصوت").
-- **السرعة:** الزمن من آخر كلمة لحد التنفيذ (بيتطبع `Total Duration`).
-- **الأوامر الحساسة:** "اقفل الجهاز" ← قول "لأ" ← لازم يلغي. جرّب كمان تسكت ومتردش على سؤال التأكيد ← لازم يلغي.
-- **جهاز ضعيف:** لو رامك 4GB أو أقل، شغّل `export SOUNDOS_STT_MODEL=tiny` وقولنا الزمن.
+**Key Evaluation Points:**
+- **Dialect & Vocabulary:** Test both colloquial Egyptian and formal Arabic (e.g., *"وطي الصوت"* vs *"خفض الصوت"*).
+- **Latency:** Observe `Total Duration` printed from end of speech to execution.
+- **Confirmation Flow:** Say *"اقفل الجهاز"* -> answer *"لا"* -> verify cancellation. Test remaining silent -> verify timeout.
+- **Low-Resource Systems:** On machines with <= 4 GB RAM, test with `export SOUNDOS_STT_MODEL=tiny`.
 
 ---
 
-## 4) تسجيل مجموعة اختبار حقيقية (أهم حاجة لتحسين الدقة)
+## 4. Recording Test Datasets (Measuring WER)
 
-ده اللي بيخلينا نقيس الدقة بصوتكم إنتوا (مش بأرقام نظرية). كل واحد (5 دقايق):
+To measure recognition accuracy across team voices:
 
 ```bash
 cd stt
-python record_set.py --speaker spk01 --condition quiet     # غيّر spk01 لاسمك (spk02, spk03 ...)
-python record_set.py --speaker spk01 --condition noisy     # ومعاه ضوضاء خفيفة في الخلفية
+python record_set.py --speaker spk01 --condition quiet     # Replace spk01 with your handle
+python record_set.py --speaker spk01 --condition noisy     # Background noise condition
 ```
 
-هيعرض عليك كل جملة وتسجلها. الجمل الفاضية = **اسكت** (بتقيس إن النظام مش بيسمع حاجة من الضوضاء). بعد ما تخلّص ابعت فولدر `stt/testset` على Google Drive.
+Follow on-screen prompts. Blank lines indicate silence trials to measure false-trigger rates.
 
-اللي هيجمّعهم يقيس (أمر واحد):
+To calculate Word Error Rate (WER):
 ```bash
 pip install jiwer
-python eval_wer.py tiny            # وبعدين base ثم small. قارن الأرقام
+python eval_wer.py tiny            # Compare across tiny, base, and small models
 python eval_wer.py tiny --no-prompt
 ```
 
 ---
 
-## 5) إزاي تبلّغ عن مشكلة (انسخ ده في Trello أو الجروب)
+## 5. Issue Reporting Template
 
 ```
-الجهاز: (لينكس حقيقي / VMware / VirtualBox)   الرام:      Python: (python --version)
-الموديل: (tiny / base / small)    الميكروفون: (داخلي / USB / سماعة)
-الجملة اللي قلتها:
-اللي اتكتب في التيرمنال (Heard Input / Intent):
-اللي توقعته:                      اللي حصل:
-بتحصل كل مرة ولا أحيانًا؟  (مثلاً 2 من 3)
+Hardware: (Bare Metal / VMware / VirtualBox)   RAM: (e.g. 8GB)   Python: (python --version)
+Model: (tiny / base / small)                   Microphone: (Built-in / USB / Headset)
+Spoken Phrase:
+Recognized Text (Heard Input):
+Expected Intent:
+Observed Output:
 ```
-- ابعت كمان آخر سطور من `python scripts/doctor.py` لو المشكلة في الميكروفون أو الصوت.
-- سجل الأمان (كل أمر اتوافق عليه أو اترفض ولو سبب): `safety/security_audit.log`.
-
-## جدول سريع للمشاكل الشائعة
-
-| المشكلة | الحل |
-|---|---|
-| الميكروفون مش بيشتغل في الـ VM | VMware: Sound Card → Connect at power on، وصلاحية الميكروفون في ويندوز، وبعدين `python check_mic.py` |
-| "اقفل التطبيق" / السطوع مش شغالين | بتشتغل على جلسة **X11** بس (مش Wayland). `sudo apt install wmctrl` |
-| أول أمر بطيء جدًا | أول مرة بينزّل موديل Whisper (محتاج إنترنت مرة واحدة) |
-| فهم غلط كتير | قرّب من الميكروفون، قلّل الضوضاء، وسجّل الجملة وابعتها (القسم 4) |

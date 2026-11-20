@@ -1,75 +1,75 @@
-# 🧠 أساسيات الـ LLM في Sound OS
+# 🧠 LLM Basics in Sound OS
 
-> ملف قصير بيشرح **إيه اللي هنستخدمه** و**معنى كل مصطلح**. للتطبيق العملي (إزاي نشغّله) ارجع لـ `llm-setup.md`.
+> A concise guide explaining **what components we use** and **key terminology**. For hands-on setup instructions, refer to `LLM-setup.md`.
 
 ---
 
-## 1) الفكرة بالتشبيه
+## 1) Conceptual Analogy
 
-نفس مثال المطعم اللي في الدليل:
+Using the restaurant analogy:
 
-| في المطعم | في مشروعنا |
+| In a Restaurant | In Sound OS |
 |---|---|
-| المطبخ | **Ollama**: البرنامج اللي بيشغّل الموديل |
-| الشيف | **الـ Model**: اللي بيفهم الجملة ويقول المقصود |
-| الجرسون | **كودنا** (`intent.py`): بيبعت الجملة للمطبخ ويستلم الرد |
+| Kitchen | **Ollama**: The engine executing the local language model |
+| Chef | **The Model**: Comprehends the sentence and infers user intent |
+| Waiter | **Our Code** (`intent.py` / `rules.py`): Relays the utterance and parses the response |
 
-الـ LLM مكانه في المرحلة التانية (فهم الأمر):
+The LLM is positioned in Phase 2 (Intent Parsing):
 
 ```
-🎤 صوت → [STT] نص → [فهم الأمر: المطابقة العادية، ولو فشلت ← LLM] → اسم أمر → [Allowlist] → تنفيذ على لينكس → رد
+🎤 Voice → [STT] Text → [Intent Parsing: Rule matching, fallback → LLM] → Intent Name → [Allowlist] → Linux Execution → Feedback
 ```
 
-**القاعدة الأهم:** الـ LLM **يقترح اسم أمر من القايمة بس** (`open_browser` / `volume_up` / `shutdown` / `unknown`). هو **مش بينفّذ حاجة**، والتنفيذ دايمًا بالـ Allowlist، والإطفاء بتأكيد.
+**Cardinal Rule:** The LLM **only proposes an intent name from the allowed list** (`open_browser` / `volume_up` / `shutdown` / `unknown`). It **never executes anything directly**. Execution is strictly guarded by the Allowlist, and high-risk actions (e.g., shutdown, file deletion) strictly mandate interactive confirmation.
 
-### مين بيتعامل معاه؟
+### Responsibilities by Role
 
-| الدور | علاقته بالـ LLM |
+| Role | LLM Scope & Integration |
 |---|---|
-| 🧠 دور 3 (NLU) | بيكتب الكود اللي بيكلّم الـ LLM ويستلم الاسم |
-| 🐧 دور 4 (Linux) | بيتأكد إن التنفيذ بالـ Allowlist مهما كان رد الـ LLM |
-| 🔍 دور 6 (QA) | بيقيس الدقة وزمن الرد ويجرّب الحالات الغريبة |
-| 👑 دور 1 (Leader) | بيقرر طريقة التشغيل (جوه الـ VM / سيرفر مشترك) |
+| 🧠 Role 3 (NLU) | Implements client code communicating with the LLM and parsing response payloads |
+| 🐧 Role 4 (Linux) | Enforces Allowlist constraints regardless of LLM recommendations |
+| 🔍 Role 6 (QA) | Benchmarks accuracy, response latency, and validates edge-case prompts |
+| 👑 Role 1 (Leader) | Determines deployment strategy (inside VM vs. shared network host) |
 
 ---
 
-## 2) المصطلحات الأساسية (14)
+## 2) Core Terminology (14 Key Concepts)
 
-### تشغيل الـ LLM
+### LLM Runtime
 
-| المصطلح | معناه ببساطة | تشبيه / مثال |
+| Term | Definition | Analogy / Example |
 |---|---|---|
-| **Ollama** | برنامج بيشغّل موديلات لغوية على جهازك أنت | المطبخ |
-| **Model** (موديل) | برنامج ذكاء اصطناعي جاهز (متدرّب قبل كده). بتسحبه بالاسم، مثلًا `qwen3.5:2b`. الأمر: `ollama pull اسم_الموديل` | الشيف |
+| **Ollama** | Local runtime service that serves open-source LLMs on your machine | The Kitchen |
+| **Model** | Pre-trained neural network weights. Pulled by model identifier, e.g., `qwen3.5:2b`. Command: `ollama pull <model_name>` | The Chef |
 
-### الشبكة (هنحتاجها لو الـ LLM مش على نفس الجهاز)
+### Networking (When LLM runs on a separate machine)
 
-| المصطلح                  | معناه ببساطة                                                                    | تشبيه / مثال                            |
-| ------------------------ | ------------------------------------------------------------------------------- | --------------------------------------- |
-| **localhost**            | "الجهاز نفسه". Ollama بيسمع لـ localhost بس بشكل افتراضي                        | "هرد على اللي قاعد جوه الأوضة معايا بس" |
-| **IP**                   | عنوان الجهاز على الشبكة                                                         | رقم الشقة                               |
-| **Port** (بورت)          | رقم الباب اللي Ollama بيستقبل عليه. عندنا: `11434`                              | رقم الباب                               |
-| **API**                  | طريقة كلامنا مع Ollama من الكود (طلب وردّ)                                      | الجرسون بينك وبين المطبخ                |
-| **Host مقابل VM**        | **Host** = ويندوز (جهازك الحقيقي). **VM** = Xubuntu اللي جواه                   | البيت الكبير والشقة اللي جواه           |
-| **NAT مقابل Bridged**    | نوعين لشبكة الـ VM. الاختيار بيأثّر على العنوان اللي الـ VM هتنادي بيه الـ Host | طريقة دخول الشقة للشارع                 |
-| **Firewall** (جدار ناري) | بيمنع أي اتصال غريب. لازم نسمحله بالبورت 11434                                  | حارس البيت                              |
-| **Tailscale**            | شبكة خاصة بين أجهزة معينة عبر الإنترنت، من غير ما نفتح أي حاجة للعالم           | خط تليفون خاص بينكم                     |
-
-### قواعد المشروع
-
-| المصطلح | معناه ببساطة | تشبيه / مثال |
+| Term | Definition | Analogy / Example |
 |---|---|---|
-| **Allowlist** | قايمة أوامر مسموحة فقط، وأي حاجة برّاها مرفوضة، حتى لو الـ LLM اقترحها | قايمة المدعوّين على باب الحفلة |
-| **Fallback** | الخطة البديلة لو الـ LLM مش متاح أو بطيء: نرجع للمطابقة العادية (`rapidfuzz`) | طبق بديل لو المطبخ مشغول |
-| **Timeout** | أقصى وقت ننتظره للـ LLM قبل ما نرجع للـ Fallback | "لو مردّش في كام ثانية، كمّل من غيره" |
-| **OLLAMA_URL** | إعداد بيحدد عنوان الـ LLM (على أنهي جهاز). بيتغيّر من غير ما نعدّل الكود | عنوان المطبخ مكتوب في ورقة، مش محفور على الحيطة |
+| **localhost** | "This local machine". Ollama listens strictly on `localhost` by default. | "Only answering people inside the room." |
+| **IP Address** | Network identifier of a node on a local or virtual network. | Apartment unit number. |
+| **Port** | The network endpoint number Ollama listens on. Default: `11434`. | Specific doorway into the unit. |
+| **API** | HTTP interface used by Python code to send prompts and receive responses. | The waiter carrying orders between table and kitchen. |
+| **Host vs. VM** | **Host** = Physical OS (e.g., Windows). **VM** = Guest Linux instance (e.g., Xubuntu). | The entire building vs. a specific apartment inside. |
+| **NAT vs. Bridged** | VM network adapter modes affecting host and subnet reachability. | How private building access connects to the street. |
+| **Firewall** | Network packet filter. Port 11434 must be explicitly permitted for the safe subnet. | Security guard at the building gate. |
+| **Tailscale** | Zero-config mesh VPN providing encrypted peer-to-peer tunnels without public port forwarding. | A private, dedicated intercom line between team members. |
+
+### Architectural Rules
+
+| Term | Definition | Analogy / Example |
+|---|---|---|
+| **Allowlist** | Strict enumerated whitelist of allowed system commands; all others are rejected even if the LLM suggests them. | The guest list at a VIP event. |
+| **Fallback** | Tiered contingency plan: if the LLM is unreachable or times out, degrade gracefully to fuzzy matching (`rapidfuzz`). | Backup menu item if the chef is overloaded. |
+| **Timeout** | Maximum permissible latency deadline before abandoning the LLM and failing over. | "If no response within 2 seconds, continue without it." |
+| **OLLAMA_URL** | Environment variable configuring the Ollama endpoint dynamically across environments. | Writing the kitchen address on paper rather than engraving it into stone. |
 
 ---
 
-## 3) المصادر
+## 3) References & Further Reading
 
-- Ollama (الصفحة الرسمية): https://ollama.com
-- الـ FAQ الرسمي (البورت وlocalhost و`OLLAMA_HOST`): https://docs.ollama.com/faq.md
-- Tailscale: https://tailscale.com/pricing/faq
+- Ollama Official Site: https://ollama.com
+- Ollama FAQ & Configuration (`OLLAMA_HOST`, ports): https://docs.ollama.com/faq.md
+- Tailscale Documentation: https://tailscale.com/pricing/faq
 
-> التعريفات هنا مبسّطة للفهم. أي رقم أو إعداد محدد (حجم موديل، سرعة، استهلاك رام) **لازم الفريق يقيسه على جهازه**، ومتتحطش في التقرير من غير قياس.
+> All definitions are tailored for system engineering. Model sizing, VRAM footprint, and latency must be empirically measured on team hardware before inclusion in project benchmarks.
