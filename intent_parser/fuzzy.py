@@ -25,7 +25,13 @@ from .normalize import normalize as N
 TOKEN_CUTOFF = 0.80     # similarity needed to repair a random word
 SLOT_CUTOFF = 0.70      # similarity needed for an app/folder name after open/close
 SLOT_MARGIN = 0.12      # the best app must beat the 2nd best by this much (else: ambiguous -> no guess)
+PAIR_CUTOFF = 0.75      # two glued words are a weaker signal, so they need a closer match
 MIN_LEN = 4             # shorter words (ايه, من, up, run) are never "repaired"
+# Function words are never a spelling mistake of an app name. Without this "اقفل اللي فاتح"
+# (close the one that is open) was glued into "ليفاتح" and "repaired" to the file manager.
+STOP = frozenset({"اللي", "الي", "ده", "دا", "دي", "ديه", "هذا", "هذه", "كل", "بتاع", "بتاعت", "بتاعه",
+                  "علي", "على", "في", "من", "الحالي", "الحاليه", "شغال", "قدامي", "فاتح", "مفتوح", "معايا",
+                  "the", "this", "that", "one", "all", "every", "current", "open"})
 
 # Common English words that must NEVER be repaired into an app/command name.
 # Classic false-positive: "what" -> "whats" (whatsapp).  Block the whole class.
@@ -139,11 +145,11 @@ def repair_slot(toks):
     for i in range(len(toks)):
         for n in (1, 2):                          # a single word, or two words that were split by STT
             span = toks[i:i + n]
-            if len(span) < n or any(len(t) < 3 or _known(t, words) or not t.isalpha() for t in span):
+            if len(span) < n or any(len(t) < 3 or t in STOP or _known(t, words) or not t.isalpha() for t in span):
                 continue
             joined = _core("".join(span)) if n == 2 else _core(span[0])
             hit = _best_alias(joined, aliases)
-            if hit and hit[2] >= SLOT_CUTOFF and hit[3] >= SLOT_MARGIN:
+            if hit and hit[2] >= (PAIR_CUTOFF if n == 2 else SLOT_CUTOFF) and hit[3] >= SLOT_MARGIN:
                 out.append(" ".join(toks[:i] + [hit[1]] + toks[i + n:]))
     return out
 

@@ -374,7 +374,7 @@ def _out(intent, params, lang, raw):
 # A NEGATED command must never run: "متفتحش الكروم" (don't open chrome) used to OPEN chrome.
 # Egyptian ما/م + ت... + ش,  "لا تفتح", "بلاش", "مش عايز ...", English don't / do not / never.
 NEGATED = re.compile(r"\bما ?ت\w+ش\b|\bمت\w+ش\b|\bلا ?ت\w+\b|\bبلاش\b|\bمش (?:عايز|عاوز|محتاج)\b|"
-                     r"\b(?:don'?t|do not|never|no need to)\b")
+                     r"\b(?:don ?t|do not|never|no need to)\b")          # N() turns don't into "don t"
 
 
 def parse(text, lang=None):

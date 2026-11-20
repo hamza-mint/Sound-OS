@@ -150,3 +150,61 @@ def test_egyptian_dialect(phrase, intent):
 ])
 def test_yes_no_dialect(answer, want):
     assert parse_yes_no(answer) is want
+
+
+# ------------------------------------------------------- closing programs
+CLOSE_CURRENT = [
+    "سكره", "اقفله", "اقفلها", "اغلقه", "قفله", "اقفل ده", "اقفل دا", "اقفل دي", "اقفل ده بقى",
+    "اقفل النافذة", "اقفل النافذه دي", "اقفل الويندو", "اقفل الصفحة دي", "اقفل البرنامج ده",
+    "اقفل البرنامج اللي شغال", "اقفل اللي شغال", "اقفل اللي قدامي", "اقفل اللي فاتح",
+    "اقفل التطبيق الحالي", "سكر التطبيق ده", "اغلاق التطبيق", "اغلاق البرنامج", "اغلاق النافذه",
+    "انهاء البرنامج", "خلاص اقفل", "كفايه كده اقفل", "يلا اقفل", "ممكن تقفل البرنامج",
+    "close this", "close it", "close window", "close current window", "close this window", "kill the app", "quit",
+]
+
+
+@pytest.mark.parametrize("phrase", CLOSE_CURRENT)
+def test_close_the_current_program(phrase):
+    out = parse(phrase)
+    assert (out["intent"], out["params"]) == ("close_app", {"app": "current"})
+
+
+@pytest.mark.parametrize("phrase,app", [
+    ("سكر المتصفح", "firefox"), ("لو سمحت اقفل المتصفح", "firefox"),
+    ("اغلاق المتصفح", "firefox"), ("انهاء المتصفح", "firefox"),     # noun forms used to OPEN the browser
+    ("اقفل الفيرفوكس", "firefox"), ("اقفل المتصف", "firefox"), ("اقفل الكرم", "chrome"),
+    ("اخرج من الكروم", "chrome"), ("انهي الكروم", "chrome"), ("وقف الكروم", "chrome"),
+    ("نفسي اقفل الترمينال", "terminal"), ("اقفل الترمينال ده", "terminal"), ("اقفل الحاسبه دي", "calculator"),
+])
+def test_close_a_named_program(phrase, app):
+    out = parse(phrase)
+    assert (out["intent"], out["params"]) == ("close_app", {"app": app})
+
+
+@pytest.mark.parametrize("phrase", [
+    # real things (a door, light, window) and "everything": nothing may be closed
+    "اقفل الباب", "اقفل الباب ده", "اقفل النور", "اقفل الشباك", "اقفل التلفزيون", "اقفل كل البرامج",
+    "اقفل كل حاجه", "close the window", "close all apps", "close everything",
+])
+def test_closing_real_things_or_everything_is_not_a_command(phrase):
+    assert parse(phrase)["intent"] == "unknown"
+
+
+@pytest.mark.parametrize("phrase", [
+    # a NEGATED command must never run (these used to run the positive command!)
+    "ماتشغلش الكروم", "متفتحش المتصفح", "متقفلش الكروم", "ماتقفلش المتصفح", "لا تفتح المتصفح",
+    "بلاش تفتح الكروم", "مش عايز افتح المتصفح", "don't open the browser", "do not close chrome", "never shut down",
+])
+def test_negated_commands_do_nothing(phrase):
+    assert parse(phrase)["intent"] == "unknown"
+
+
+def test_shutdown_and_mute_are_not_hijacked_by_the_close_words():
+    assert parse("اقفل الجهاز")["intent"] == "shutdown"
+    assert parse("اقفل الصوت")["intent"] == "mute"
+    assert parse("اغلاق الجهاز")["intent"] == "shutdown"
+
+
+def test_fuzzy_does_not_glue_function_words_into_an_app_name():
+    # "اللي فاتح" was glued to "ليفاتح" and repaired to the file manager
+    assert parse("اقفل اللي فاتح")["params"] == {"app": "current"}
