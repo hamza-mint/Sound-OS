@@ -12,6 +12,8 @@ Contract:
     output: (text, lang) where lang is "ar" or "en".
             text == "" means "no speech understood" -> the caller should ignore it.
 """
+import math
+import re
 import time
 
 import numpy as np
@@ -29,6 +31,7 @@ PROMPTS = {
 
 SILENCE_RMS = 0.003    # gate for (almost) digital silence; VAD handles real noise
 MIN_SECONDS = 0.3      # shorter than this -> ignore
+MAX_WORDS_PER_SECOND = 2.5   # generous for isolated spoken commands; see trim_to_speech
 
 
 class SpeechToText:
@@ -74,6 +77,40 @@ class SpeechToText:
         return any(words[i] == words[i + 1] == words[i + 2]
                    for i in range(len(words) - 2))
 
+    @staticmethod
+    def voiced_seconds(audio):
+        """Seconds of audio that really contain sound (20 ms frames well above the noise floor).
+        Used only to sanity-check how many words the clip can hold."""
+        n = int(0.02 * SAMPLE_RATE)
+        if len(audio) < n:
+            return len(audio) / SAMPLE_RATE
+        frames = audio[: len(audio) // n * n].reshape(-1, n)
+        level = np.sqrt(np.mean(frames ** 2, axis=1))
+        loud = level > max(2 * SILENCE_RMS, 0.10 * float(level.max()))
+        return float(loud.sum()) * 0.02 + 0.1      # +0.1 s: soft word endings fall below the threshold
+
+    @staticmethod
+    def trim_to_speech(text, voiced_seconds):
+        """Cut words the audio cannot contain (prompt leakage).
+
+        With a command-list prompt Whisper sometimes keeps going after the real command and writes
+        other prompt words ("..., افتح الترمينال، وطي الإضاءة"). The parser would then run the WRONG
+        command. A short clip cannot hold that many words, so keep whole clauses (split by ، , . ؟ ?)
+        only while they fit in about MAX_WORDS_PER_SECOND; the first clause is always kept.
+        Missing a 2nd command is safe (the user repeats it); executing an invented one is not."""
+        clauses = [c.strip() for c in re.split(r"[،,.؟?!؛;]+", text) if c.strip()]
+        if len(clauses) < 2:
+            return text
+        allowed = max(len(clauses[0].split()), math.ceil(voiced_seconds * MAX_WORDS_PER_SECOND))
+        kept, words = [], 0
+        for c in clauses:
+            n = len(c.split())
+            if kept and words + n > allowed:
+                break
+            kept.append(c)
+            words += n
+        return text if len(kept) == len(clauses) else "، ".join(kept)
+
     # ---------- decoding ----------
     def _decode(self, audio, language, use_prompt, custom_prompt=None):
         if custom_prompt is not None:
@@ -102,6 +139,8 @@ class SpeechToText:
         text = " ".join(s.text.strip() for s in segments).strip()
         if self._is_repetitive(text):
             text = ""
+        elif text:
+            text = self.trim_to_speech(text, self.voiced_seconds(audio))
         return text, info
 
     def transcribe(self, audio, language=None, use_prompt=True, prompt=None):
@@ -109,6 +148,7 @@ class SpeechToText:
         Returns (text, lang)."""
         import os
         audio = self._load(audio)
+        self.last_candidates = []        # what the auto-detect step produced (used by run_live.py to show it)
 
         # 1) too short / too quiet -> do not even run the model
         if len(audio) < MIN_SECONDS * SAMPLE_RATE or self.rms(audio) < SILENCE_RMS:
@@ -128,10 +168,11 @@ class SpeechToText:
         # 3) auto-detect, then restrict to ar/en
         text, info = self._decode(audio, None, use_prompt, custom_prompt=prompt)
         lang = info.language
+        probs = dict(info.all_language_probs or [])
         if lang not in ALLOWED_LANGS:
-            probs = dict(info.all_language_probs or [])
             lang = max(ALLOWED_LANGS, key=lambda l: probs.get(l, 0.0))
             text, _ = self._decode(audio, lang, use_prompt, custom_prompt=prompt)
+        self.last_candidates = [{"lang": lang, "text": text, "score": probs.get(lang)}]
         return text, lang
 
     def transcribe_wake(self, audio):

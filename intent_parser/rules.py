@@ -104,7 +104,7 @@ FOLDERS = {
 NOISE = W("ممكن", "لو سمحت", "من فضلك", "يا ريت", "بالله عليك", "لو تكرمت", "عايز", "عاوز", "عايزه",
           "نفسي", "اريد", "محتاج", "يا ساوند", "يا ديف", "يا عم ديف", "ياعم ديف", "بعد اذنك", "لو سمحتلي",
           "عايزك", "عاوزك", "محتاجك", "يا ريس", "يا باشا",
-          "بقي", "طيب", "طب", "يلا", "دلوقتي", "حالا", "بسرعه", "كده", "لو مش مشغول",   # Egyptian fillers
+          "بقي", "طيب", "طب", "يلا", "دلوقتي", "حالا", "بسرعه", "كده", "خلاص", "كفايه", "لو مش مشغول",   # Egyptian fillers
           "هل يمكنك", "هل تستطيع", "ارجوك", "رجاء", "تفضل",
           "please", "can you", "could you", "would you",
           "hey sound", "ok sound", "sound os", "hey dave", "ok dave", "dave",
@@ -116,6 +116,7 @@ OPEN_ANY = V("افتح", "فتح", "تفتح", "شغل", "تشغل", "وريني
 OPEN_NAV = V("افتح", "فتح", "تفتح", "وريني", "ودني", "وديني", "روح", "هات", "طلعلي", "ادخل علي", "اعرض", "اظهر",
              "open", "show", "go to", "take me to", "browse")          # no "شغل": that means play
 CLOSE = V("اقفل", "قفل", "تقفل", "سكر", "تسكر", "اغلق", "تغلق", "وقف", "اخرج من", "اطفي", "طفي", "تطفي", "انهي",
+          "اغلاق", "انهاء", "اقفال",          # noun forms: "اغلاق المتصفح" used to OPEN the browser
           "سيب", "اطلع من", "close", "quit", "exit", "kill", "stop", "terminate")
 PLAY = V("شغل", "تشغل", "اسمع", "سمعني", "تسمعني", "play", "put on", "listen to")
 SEARCH = V("ابحث", "تبحث", "دور", "تدور", "سيرش", "بحث", "search", "google", "look up", "lookup")
@@ -275,13 +276,22 @@ def r_play_media(t):
     return ("play_media", {"query": q} if q else {})
 
 
+# "close <this>": a noun that means the current program/window, or a pointing word (ده / it / اللي شغال).
+# Pointing words count ONLY when nothing else is said: "اقفل ده" yes, "اقفل الباب ده" (a real door) no.
+CURRENT_NOUN = (r"\b(?:تطبيق|التطبيق|البرنامج|برنامج|الابلكيشن|ابلكيشن|النافذه|نافذه|الويندو|ويندو|"
+                r"الصفحه|صفحه|app|application|the app|the application|program|the program|current|this)\b"
+                r"|(?<!\bthe )\bwindow\b")                      # "close window" yes, "close the window" (a real one) no
+_CLOSE_VERB = r"(?:اقفل|اقفلي|قفل|سكر|سكري|اغلق|اغلقي|انهي|close|quit|exit|kill|terminate)(?:لي|ليا|لنا|ه|ها)?"
+_POINTING = (r"(?:ده|دا|دي|ديه|هذا|هذه|الحالي|الحاليه|الشغال|المفتوح|المفتوحه|"
+             r"(?:اللي|الي) (?:شغال|قدامي|فاتح|مفتوح|معايا)|it|that|this one|that one|this)")
+
+
 def r_close_app(t):
     if has(CLOSE, t):
         app = _find_alias(APPS, t)
         if app:
             return ("close_app", {"app": app})
-        # Generic close: "اقفل تطبيق", "اقفل التطبيق", "اقفل البرنامج", "close app", "close the app"
-        if has(r"\b(?:تطبيق|التطبيق|البرنامج|برنامج|الابلكيشن|ابلكيشن|app|application|the app|the application|program|the program|current|this)\b", t) or t.strip() in {"اقفل", "اقفلي", "اغلق", "اغلقي", "سكر", "سكري", "طفي", "close"}:
+        if has(CURRENT_NOUN, t) or re.fullmatch(_CLOSE_VERB + r"(?:\s+" + _POINTING + r")?", t.strip()):
             return ("close_app", {"app": "current"})
 
 
@@ -416,8 +426,15 @@ NO = W("لا", "لاء", "الغي", "الغاء", "بلاش", "مش عايز", 
        "cancel", "no", "nope", "stop", "don't", "abort", "never mind")
 
 
+MAX_ANSWER_WORDS = 4      # "yes", "ايوه اكيد", "yes go ahead". A long transcript is noise or leaked prompt, not an answer
+
+
 def parse_yes_no(text):
-    """Answer to a confirmation question: True (yes), False (no), None (unclear)."""
+    """Answer to a confirmation question: True (yes), False (no), None (unclear).
+    Guards the shutdown/delete confirmation: only a SHORT answer counts, so a long garbled
+    transcript that happens to contain "صح" or "ok" can never confirm a dangerous action."""
     t = N(text if isinstance(text, str) else "")
+    if len(t.split()) > MAX_ANSWER_WORDS:
+        return None
     y, n = has(YES, t), has(NO, t)
     return True if y and not n else False if n and not y else None

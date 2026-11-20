@@ -7,6 +7,7 @@ Output: {"success": bool, "message": str}
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Dict, Any, Tuple
@@ -19,6 +20,7 @@ logger = logging.getLogger("soundos.executor")
 _MAX_EXECUTION_SECS = 1.0
 
 CONFIG_PATH = Path(__file__).parent / "apps.json"
+_SAFE_BINARY = re.compile(r"[a-z0-9][a-z0-9._+-]{0,40}")
 
 # Load application and folder configurations
 try:
@@ -45,7 +47,11 @@ def _find_app(app_name: str) -> Tuple[str, Dict[str, Any]] | None:
         if app_clean in aliases:
             return canonical, details
 
-    # Fallback to direct app name as binary if no alias matched
+    # Fallback: run the name as a program (needed for allowlisted apps such as "telegram") but ONLY if it
+    # looks like a plain program name. No path ("/x/y"), no flag ("--help"), no spaces: defense in depth in
+    # case execute() is ever called without the safety layer in front of it.
+    if not _SAFE_BINARY.fullmatch(app_clean):
+        return None
     return app_clean, {
         "cmd": [app_clean],
         "process": app_clean,
@@ -54,13 +60,18 @@ def _find_app(app_name: str) -> Tuple[str, Dict[str, Any]] | None:
 
 
 def _resolve_folder(folder_name: str) -> str:
-    """Maps folder name or alias to directory path string."""
+    """Maps folder name or alias to directory path string. Returns "" for an unsafe custom name."""
     folder_clean = (folder_name or "").strip().lower()
     folders = APP_CONFIG.get("folders", {})
     if folder_clean in folders:
         return folders[folder_clean]
-    # Default to home subdirectory if custom name
-    return f"~/{folder_name}" if folder_name else "~"
+    if not folder_clean:
+        return "~"
+    # Custom name -> a sub-folder of home. Never a path that climbs out of it.
+    if ".." in folder_clean or "/" in folder_clean or "\\" in folder_clean or os.path.isabs(folder_clean) \
+            or folder_clean.startswith("~"):
+        return ""
+    return f"~/{folder_name.strip()}"
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +173,9 @@ def _handle_brightness_down(params: dict, lang: str, dry_run: bool) -> Tuple[boo
 def _handle_open_folder(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]:
     folder_raw = params.get("folder") or "home"
     target_path = _resolve_folder(folder_raw)
+    if not target_path:
+        msg = "Invalid folder name." if lang == "en" else "اسم مجلد غير صالح."
+        return False, msg
     if dry_run:
         return True, f"[DRY-RUN] Opening folder {target_path}" if lang == "en" else f"[تجربة] فتح مجلد {target_path}"
     ok, err = actions.open_directory(target_path)

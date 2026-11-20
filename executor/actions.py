@@ -9,7 +9,7 @@ import socket
 import subprocess
 import urllib.parse
 from pathlib import Path
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 
 SAFE_FILES_DIR = Path.home() / "SoundOS_Files"
 BRIGHTNESS_STATE_FILE = Path("/tmp/.soundos_brightness")
@@ -267,13 +267,14 @@ def terminate_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
 
     # Generic close: user said "close app" / "اقفل تطبيق" / "اقفل النافذة"
     if proc_name == "current":
-        # 1. Try closing active window via xdotool or wmctrl
-        if shutil.which("xdotool"):
-            ok, _ = _run_subcommand(["xdotool", "getactivewindow", "windowclose"])
-            if ok:
-                return True, "Closed active window."
+        # 1. Close the active window. wmctrl asks the window manager to close it (graceful, the app can
+        #    still show "save changes?"), so it goes first; xdotool is only the fallback.
         if shutil.which("wmctrl"):
             ok, _ = _run_subcommand(["wmctrl", "-c", ":ACTIVE:"])
+            if ok:
+                return True, "Closed active window."
+        if shutil.which("xdotool"):
+            ok, _ = _run_subcommand(["xdotool", "getactivewindow", "windowclose"])
             if ok:
                 return True, "Closed active window."
 
@@ -296,7 +297,8 @@ def terminate_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
                     _run_subcommand(["pkill", "-x", cand])
                     return True, f"Closed {cand}."
 
-        return True, "Closed active window."
+        # Nothing was closed: say so (reporting success here made the voice answer "Closed" for nothing)
+        return False, "No window or known app found to close."
 
     # 1. Try graceful window close if wmctrl is installed (X11)
     if shutil.which("wmctrl"):

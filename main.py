@@ -18,9 +18,10 @@ except ImportError:
     from ui_tts.coucou_bridge import on_wake, on_heard, on_done
 
 
-def _execute_single(text, ask_yes_no, lang_hint=None, confidence=1.0):
-    """Execute a single atomic command through safety and executor with metadata persistence."""
-    parsed = parse(text, lang=lang_hint)
+def _execute_single(text, ask_yes_no, lang_hint=None, confidence=1.0, parsed=None):
+    """Execute a single atomic command through safety and executor with metadata persistence.
+    `parsed` lets the caller reuse a parse it already did (the fuzzy pass makes a 2nd parse not free)."""
+    parsed = dict(parsed) if parsed else parse(text, lang=lang_hint)
     parsed["confidence"] = confidence
 
     # Bilingual voice selection (Slide 8 & 9):
@@ -83,7 +84,7 @@ def handle(text, ask_yes_no, lang_hint=None, confidence=1.0):
             print(f"   • Params:   {params}")
         print(f"   • Status:   Executing...")
 
-        res = _execute_single(cmd, ask_yes_no, lang_hint=lang_hint, confidence=confidence)
+        res = _execute_single(cmd, ask_yes_no, lang_hint=lang_hint, confidence=confidence, parsed=parsed)
         cmd_time = time.perf_counter() - t_cmd_start
         results.append(res)
         lang = res.get("lang", lang)
@@ -132,7 +133,10 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--text", help="skip mic + STT and parse this text")
     ap.add_argument("--wav", help="skip mic and transcribe this WAV file")
+    ap.add_argument("--no-ui", "--headless", dest="no_ui", action="store_true", help="run in background/headless mode without GUI window")
     args = ap.parse_args()
+    if args.no_ui:
+        os.environ["SOUNDOS_NO_UI"] = "1"
     if args.text:
         on_wake()
         handle(args.text, ask_yes_no=lambda: input("yes/no> "))

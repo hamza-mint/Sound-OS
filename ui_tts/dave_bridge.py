@@ -758,6 +758,8 @@ def _send(cmd, arg=None):
     try:
         if _closed:         # user closed the window: stay closed
             return
+        if os.environ.get("SOUNDOS_NO_UI") == "1" or os.environ.get("SOUNDOS_HEADLESS") == "1":
+            return
         _ensure_thread()
         _q.put((cmd, arg))
     except Exception:
@@ -768,6 +770,8 @@ def _send(cmd, arg=None):
 def start() -> None:
     """Open the window now (logo spin plays). Optional: on_wake() also opens it."""
     try:
+        if os.environ.get("SOUNDOS_NO_UI") == "1" or os.environ.get("SOUNDOS_HEADLESS") == "1":
+            return
         if not _closed:
             _ensure_thread()
     except Exception:

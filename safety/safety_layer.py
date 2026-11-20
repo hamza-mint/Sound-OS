@@ -6,11 +6,14 @@ from typing import Dict, Any, Callable, Optional
 
 # إعداد سجل الأمان (Security Audit Log) لتوثيق كل قرار موافقة أو رفض
 LOG_FILE = os.path.join(os.path.dirname(__file__), "security_audit.log")
-logging.basicConfig(
-    filename=LOG_FILE,
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-)
+try:
+    logging.basicConfig(
+        filename=LOG_FILE,
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+    )
+except OSError:      # read-only install folder: keep working, log to stderr instead of crashing at import
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
 # كلمات التأكيد والرفض المدعومة بالعامية المصرية والعربية والإنجليزية
 YES_WORDS = {
@@ -186,6 +189,10 @@ class SafetyLayer:
 
         reply = str(user_response).strip().lower()
         tokens = set(reply.split())
+
+        # رد طويل = ضوضاء أو نص متسرب من الـ STT وليس جواباً: لا يكفي أبداً للموافقة على أمر خطير
+        if len(reply.split()) > 4:
+            return False, f"Ambiguous confirmation response (too long). Command cancelled for safety."
 
         # أسبقية لكلمات الرفض (لو قال: "لأ مش موافق" يرفض فوراً)
         if tokens.intersection(NO_WORDS):

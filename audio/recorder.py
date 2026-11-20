@@ -41,6 +41,11 @@ NO_SPEECH_TIMEOUT = 4.0      # give up if nobody speaks within this time
 PREROLL_BLOCKS = 14          # ~420 ms kept from before speech was detected (never clip first syllable)
 TRAILING_KEEP_BLOCKS = 8     # ~240 ms of trailing silence kept in the file
 START_BLOCKS = 2             # consecutive loud blocks required to start speech (fast trigger)
+CONTINUE_RATIO = 0.6         # once speaking, only energy below 60% of the start threshold counts as silence
+                             # (soft endings like the final ح/ه/ع in Arabic must not end the recording early)
+QUIET_PEAK = 8192            # clips whose loudest sample is below 25% of full scale get lifted ...
+TARGET_PEAK = 16384          # ... to about 50% of full scale (-6 dBFS) ...
+MAX_GAIN = 8.0               # ... but never by more than 8x (+18 dB), so noise is not blown up
 
 
 def _log(msg: str) -> None:
@@ -105,6 +110,65 @@ def _new_wav_path() -> str:
     return os.path.abspath(path)
 
 
+class _Resampler:
+    """Streaming sample-rate converter (numpy only): low-pass FIR first, then linear interpolation.
+
+    Why: just taking every 3rd sample (48 kHz -> 16 kHz) folds everything above 8 kHz back into the
+    speech band (aliasing). Arabic sibilants (س ش ص ز) carry energy up to 8-10 kHz, so they get
+    corrupted exactly where Whisper listens. The FIR cuts at 7.2 kHz before picking samples.
+    State is kept between blocks, so there is no click at block borders.
+    """
+    TAPS = 63
+
+    def __init__(self, src: int, dst: int = SAMPLE_RATE):
+        self.step = src / float(dst)
+        fc = 0.45 * dst / float(src)                      # cutoff in cycles/sample (= 0.45 * dst Hz)
+        n = np.arange(self.TAPS) - (self.TAPS - 1) / 2.0
+        h = 2 * fc * np.sinc(2 * fc * n) * np.blackman(self.TAPS)
+        self.h = h / h.sum()                              # DC gain exactly 1
+        self.hist: Optional[np.ndarray] = None            # last TAPS-1 input samples
+        self.buf = np.zeros(0)                            # filtered samples not consumed yet
+        self.pos = 0.0                                    # where the next output sample sits in buf
+
+    def process(self, x: np.ndarray) -> np.ndarray:
+        x = np.asarray(x, dtype=np.float64)
+        if x.size == 0:
+            return np.zeros(0)
+        if self.hist is None:                             # start in steady state: no ramp-up artefact
+            self.hist = np.full(self.TAPS - 1, x[0])
+        joined = np.concatenate([self.hist, x])
+        y = np.convolve(joined, self.h, mode="valid")     # len(y) == len(x)
+        self.hist = joined[-(self.TAPS - 1):]
+        buf = np.concatenate([self.buf, y])
+        last = len(buf) - 1
+        n_out = int(math.floor((last - self.pos) / self.step)) + 1 if last >= self.pos else 0
+        out = np.interp(self.pos + np.arange(n_out) * self.step, np.arange(len(buf)), buf)
+        nxt = self.pos + n_out * self.step
+        drop = int(math.floor(nxt))
+        self.buf = buf[drop:]
+        self.pos = nxt - drop
+        return out
+
+
+def polish_pcm(pcm: bytes) -> bytes:
+    """Clean a finished utterance before STT: remove DC offset, lift a very quiet recording.
+    Quiet laptop mics are a common cause of wrong Arabic transcripts. Never clips. SOUNDOS_NORMALIZE=0 skips it."""
+    try:
+        if os.environ.get("SOUNDOS_NORMALIZE", "1") == "0" or len(pcm) < 2:
+            return pcm
+        x = np.frombuffer(pcm[: len(pcm) - (len(pcm) % 2)], dtype=np.int16).astype(np.float64)
+        x -= x.mean()
+        peak = float(np.abs(x).max())
+        if peak >= 32000:
+            _log("mic is clipping (too loud): lower the input gain in pavucontrol / system sound settings")
+        elif 0 < peak < QUIET_PEAK:
+            x *= min(TARGET_PEAK / peak, MAX_GAIN)
+        return np.clip(np.rint(x), -32768, 32767).astype(np.int16).tobytes()
+    except Exception as exc:
+        _log(f"polish_pcm skipped: {exc}")
+        return pcm
+
+
 # --------------------------------------------------------------------------- #
 # Microphone source
 # --------------------------------------------------------------------------- #
@@ -134,6 +198,8 @@ class MicStream:
         self._native_sr = SAMPLE_RATE
         self._native_channels = CHANNELS
         self._native_block_samples = block_samples
+        self._resampler: Optional[_Resampler] = None
+        self._pending = np.zeros(0)                  # converted samples waiting to fill the next block
 
     # -- context manager ---------------------------------------------------- #
     def __enter__(self) -> "MicStream":
@@ -146,6 +212,8 @@ class MicStream:
     # -- open / close ------------------------------------------------------- #
     def open(self) -> bool:
         """Open the mic. Returns True on success; never raises."""
+        self._resampler = None
+        self._pending = np.zeros(0)
         choice = os.environ.get("SOUNDOS_MIC_BACKEND", "auto").lower()
         order = {
             "sounddevice": ["sounddevice"],
@@ -348,34 +416,28 @@ class MicStream:
                     data, _overflow = self._sd_stream.read(self.block_samples)
                     return bytes(data)
 
-                # Hardware adaptation: read native rate/channels and resample in memory
-                raw_bytes, _overflow = self._sd_stream.read(self._native_block_samples)
-                if not raw_bytes:
-                    return None
+                # Hardware adaptation: read native rate/channels, average channels, band-limit + resample
+                if self._resampler is None or abs(self._resampler.step - self._native_sr / SAMPLE_RATE) > 1e-9:
+                    self._resampler = _Resampler(self._native_sr) if self._native_sr != SAMPLE_RATE else None
+                    self._pending = np.zeros(0)
+                for _ in range(4):                       # normally 1 read; extra only to fill rounding gaps
+                    raw_bytes, _overflow = self._sd_stream.read(self._native_block_samples)
+                    if not raw_bytes:
+                        return None
+                    arr = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float64)
+                    if self._native_channels > 1:
+                        # average ALL channels (a mic array may have one dead/quiet channel)
+                        arr = arr[: len(arr) // self._native_channels * self._native_channels]
+                        arr = arr.reshape(-1, self._native_channels).mean(axis=1)
+                    conv = self._resampler.process(arr) if self._resampler is not None else arr
+                    self._pending = np.concatenate([self._pending, conv])
+                    if len(self._pending) >= self.block_samples:
+                        break
 
-                arr = np.frombuffer(raw_bytes, dtype=np.int16)
-                if self._native_channels > 1:
-                    # Multi-channel to mono: take primary channel or average
-                    arr = arr.reshape(-1, self._native_channels)[:, 0]
-
-                # Resample to 16 kHz
-                if self._native_sr == 48000:
-                    mono = arr[::3]
-                elif self._native_sr == 32000:
-                    mono = arr[::2]
-                elif self._native_sr == SAMPLE_RATE:
-                    mono = arr
-                else:
-                    # High precision linear interpolation using numpy
-                    coords = np.linspace(0, len(arr), self.block_samples, endpoint=False)
-                    mono = np.interp(coords, np.arange(len(arr)), arr).astype(np.int16)
-
-                # Ensure exact block size
-                out = mono.tobytes()
+                block, self._pending = self._pending[: self.block_samples], self._pending[self.block_samples:]
+                out = np.clip(np.rint(block), -32768, 32767).astype(np.int16).tobytes()
                 if len(out) < self.block_bytes:
                     out = out + b"\x00" * (self.block_bytes - len(out))
-                elif len(out) > self.block_bytes:
-                    out = out[: self.block_bytes]
                 return out
 
             if self._proc is not None and self._proc.stdout is not None:
@@ -472,6 +534,7 @@ def _record_utterance(max_seconds: float, silence_seconds: float, is_wake: bool 
                 continue
 
             loud = level > threshold
+            speaking = level > threshold * CONTINUE_RATIO    # hysteresis: easier to stay "speaking" than to start
 
             # 2) Waiting for the user to start talking.
             if not started:
@@ -487,7 +550,7 @@ def _record_utterance(max_seconds: float, silence_seconds: float, is_wake: bool 
 
             # 3) Recording speech until enough trailing silence.
             frames.append(block)
-            silent_run = 0 if loud else silent_run + 1
+            silent_run = 0 if speaking else silent_run + 1
             if silent_run >= silence_blocks:
                 stopped_on_silence = True
                 break
@@ -504,6 +567,8 @@ def _record_utterance(max_seconds: float, silence_seconds: float, is_wake: bool 
             frames = frames[:-trim]
 
     pcm = b"".join(frames) or (b"\x00\x00" * BLOCK_SAMPLES)
+    if started:
+        pcm = polish_pcm(pcm)                                # only real speech: never amplify an empty room
     path = _new_wav_path()
     if not write_wav(path, pcm):
         return "" if is_wake else _silent_wav()

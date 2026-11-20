@@ -1,102 +1,284 @@
 # Sound OS 🎙️💻
 
-Voice control system for Linux (X11 / Wayland), optimized for Egyptian Arabic & English commands. Fully local, privacy-respecting, and offline-capable.
+> **نظام تشغيل صوتي محلي بالكامل لنظام لينكس، مصمم لخدمة الأوامر باللغة العربية (العامية المصرية) والإنجليزية.**
+> 
+> **A fully offline, local, privacy-first voice control system for Linux (X11 & Wayland), optimized for Egyptian Arabic and English.**
+
+---
 
 ```
-[ Microphone ]  -->  [ Wake Word: "Hey Dave" / "ديف" ]  -->  [ STT: Whisper ]
-        |                                                           |
-[ Voice / Dave UI ]  <--  [ Executor ]  <--  [ Safety Guard ]  <--  [ Intent Parser ]
+                       ┌─────────────────────────┐
+                       │   Microphone / Audio    │
+                       └────────────┬────────────┘
+                                    │ (Continuous Stream VAD)
+                       ┌────────────▼────────────┐
+                       │ Wake Word: "Hey Dave" / │
+                       │         "ديف"           │
+                       └────────────┬────────────┘
+                                    │
+                       ┌────────────▼────────────┐
+                       │  STT: faster-whisper    │
+                       │   (Local & Primed)      │
+                       └────────────┬────────────┘
+                                    │
+                       ┌────────────▼────────────┐
+                       │      Intent Parser      │
+                       │ (Compound + Fuzzy NLP)  │
+                       └────────────┬────────────┘
+                                    │
+                       ┌────────────▼────────────┐
+                       │      Safety Layer       │
+                       │ (Allowlist & Cooldowns) │
+                       └────────────┬────────────┘
+                                    │
+                       ┌────────────▼────────────┐
+                       │        Executor         │
+                       │  (Apps, Media, System)  │
+                       └────────────┬────────────┘
+                                    │
+                       ┌────────────▼────────────┐
+                       │    Dave UI & TTS Voice  │
+                       │ (Animated + Bilingual)  │
+                       └─────────────────────────┘
 ```
 
 ---
 
-## 🚀 Quick Start Guide (For Any Team Member)
+## ✨ المميزات الرئيسية (Key Features)
 
-### 1. Setup Environment
+* **خصوصية تامة ومحلي 100% (100% Offline & Private):** معالجة الصوت بالكامل على جهازك عبر `faster-whisper`؛ لا يتم إرسال أي صوت أو بيانات خارج الجهاز.
+* **دعم فائق للعامية المصرية (Egyptian Arabic & English):** يتعرف على الأفعال الشعبية وتنوعات الصياغة (`افتحلي`, `اقفلي`, `عليلي الصوت`, `خفف الصوت`, `هديلي`, `شغلي`, `ابعت رسالة`, `اقفل تطبيق`).
+* **استجابة فائقة السرعة لكلمة التنبيه (Ultra-Fast Wake Word):** استماع متدفق مستمر (Continuous Stream VAD) بدون تقطيع للصوت، مع معالجة مباشرة داخل الذاكرة (In-Memory Processing).
+* **دعم الأوامر المركبة (Compound Commands):** تنفيذ عدة أوامر في جملة واحدة تلقائياً (مثل: *"افتح المتصفح وعلي الصوت واقفل الحاسبة"*).
+* **تسامح ذكي مع الأخطاء الإملائية (Fuzzy Typo-Tolerance):** تصحيح سقطات النطق أو أخطاء الموديل تلقائياً بدون الرجوع لموديلات ثقيلة.
+* **طبقة أمان صارمة (Safety Guardrails):** فحص الأوامر الحساسة (`shutdown`, `delete_file`)، مع منع التنفيذ العشوائي، وفرض فترات انتظار وموافقة صريحة.
+* **واجهة تفاعلية مرنة + نمط خلفي صامت:** واجهة رسومية متحركة لروبوت Dave، مع إمكانية التشغيل في الخلفية بالكامل أو كخدمة نظام (`systemd service`).
+
+---
+
+## 🚀 التثبيت والبدء السريع (Quick Start)
+
+### 1. استنساخ المستودع وإعداد البيئة
 ```bash
 git clone https://github.com/sound-os/Sound-OS.git
 cd Sound-OS
 
-# Create and activate virtual environment (Python 3.10+)
+# إنشاء وتفعيل البيئة الافتراضية (Python 3.10+)
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
+# تثبيت المكتبات المطلوبة
 pip install -r requirements.txt
 ```
 
-> [!NOTE]
-> On Ubuntu/Debian, make sure PortAudio is installed:
-> ```bash
-> sudo apt install libportaudio2 alsa-utils
-> ```
-> On Fedora:
-> ```bash
-> sudo dnf install portaudio alsa-utils
-> ```
+### 2. تثبيت الحزم النظامية (حسب التوزيعة)
+* **على Fedora:**
+  ```bash
+  sudo dnf install portaudio alsa-utils espeak-ng xdotool wmctrl
+  ```
+* **على Ubuntu / Debian / Linux Mint:**
+  ```bash
+  sudo apt update
+  sudo apt install libportaudio2 alsa-utils espeak-ng xdotool wmctrl python3-tk
+  ```
 
 ---
 
-### 2. Verify Your Laptop Microphone 🎤
-Run the built-in diagnostic tool to auto-detect and test your laptop mic:
+## 🔍 الفحص الذاتي وتشخيص المايكروفون (Diagnostics)
+
+قبل تشغيل النظام، تأكد من سلامة بيئة العمل وتوافق المايكروفون:
+
 ```bash
+# فحص جاهزية النظام والأدوات والنماذج المطلوبة:
+python scripts/doctor.py
+
+# فحص واختبار مايكروفون اللابتوب وضبط الترددات تلقائياً:
 python check_mic.py
 ```
-This automatically detects Realtek, AMD, Intel, and USB microphones, auto-adjusts sample rates (e.g. 48 kHz / 44.1 kHz stereo to 16 kHz mono), and verifies volume levels.
+> [!TIP]
+> أداة `check_mic.py` تفحص تعريفات Realtek, Intel, AMD, USB وتتكيف تلقائياً مع ترددات اللابتوب (مثل 48kHz أو 44.1kHz ستيريو وتحويلها إلى 16kHz مونو فورياً).
 
 ---
 
-### 3. Run Automated Tests ✅
-```bash
-pytest
-```
-Runs 300+ automated unit and integration tests across all modules.
+## 🎮 طرق تشغيل البرنامج (How to Run)
 
----
-
-### 4. Run Sound OS
-
-#### A. Direct Text Command (No Mic Needed)
-```bash
-python main.py --text "افتح المتصفح وعلي الصوت"
-python main.py --text "Open calculator and open terminal"
-```
-
-#### B. Full Live Voice Mode (With Animated Dave UI)
+### 1. وضع الاستماع الحي مع واجهة Dave المتحركة (Standard Mode)
 ```bash
 python main.py
 ```
-- Say **"Hey Dave"** or **"ديف"** (or press **Enter**).
-- Speak your command:
-  - Arabic: *"افتح المتصفح"*, *"علي الصوت"*, *"افتح الآلة الحاسبة"*
-  - English: *"Open terminal"*, *"Turn up volume"*, *"Open files"*
-  - Compound: *"افتح المتصفح وعلي الصوت واقفل الحاسبة"*
+* انطق كلمة التنبيه: **"Hey Dave"** أو **"ديف"** (أو اضغط **Enter** لتخطي التنبيه).
+* سيفتح شباك Dave التفاعلي ويستمع لأمرك ويرد صوتياً وينفذ المطلوب فوراً.
+
+### 2. وضع التجربة النصية المباشرة (Headless / Direct Text)
+للتجربة السريعة أو التطوير بدون مايكروفون:
+```bash
+python main.py --text "افتح المتصفح وعلي الصوت"
+python main.py --text "Open terminal and turn up volume"
+python main.py --text "اقفل تطبيق المتصفح"
+```
+
+### 3. تجربة ملف صوتي مسجل (WAV File Test)
+```bash
+python main.py --wav stt/ar_open.wav
+```
 
 ---
 
-## 🛠️ Helpful Options & Environment Variables
+## 🕶️ تشغيل البرنامج في الخلفية وإخفاء الواجهة (Background & Hidden Modes)
 
-| Variable | Values / Example | Description |
-|---|---|---|
-| `SOUNDOS_MIC_DEVICE` | `0`, `4`, or name substring | Force a specific microphone device index or name. |
-| `SOUNDOS_MIC_BACKEND` | `auto`, `sounddevice`, `arecord` | Choose audio recording backend (`auto` selects best). |
-| `SOUNDOS_DRY_RUN` | `1` | Test dangerous commands without actually shutting down / deleting. |
-| `SOUNDOS_TTS_SPEED` | `240` (default) | Words per minute for speech synthesis. |
-| `SOUNDOS_LANG` | `ar`, `en` | Override language detection for STT. |
+إذا كنت تريد أن يظل Sound OS **شغالاً في الخلفية ويستمع لأوامرك الصوتية بدون إزعاج أو بدون نافذة على الشاشة**، نوفر لك 4 طرق مرنة:
+
+### الطريقة الأولى: إخفاء الواجهة بضغطة زر (Hide Window)
+* شغل البرنامج كالمعتاد: `python main.py`.
+* بمجرد ظهور واجهة Dave، اضغط على زر الإغلاق **(X)** بالماوس.
+* **النتيجة:** ستختفي النافذة تماماً، بينما يظل Sound OS **شغالاً في الـ Terminal والخلفية** ويستمع لكلمة التنبيه وينفذ أوامرك بكل هدوء.
+
+### الطريقة الثانية: التشغيل الصامت بدون واجهة إطلاقاً (`--no-ui`)
+يمكنك بدء البرنامج مباشرة من سطر الأوامر بدون أي واجهة رسومية عبر خيار `--no-ui` أو المتغير `SOUNDOS_NO_UI`:
+```bash
+# خيار سطر الأوامر المباشر:
+python main.py --no-ui
+
+# أو عبر متغير البيئة:
+SOUNDOS_NO_UI=1 python main.py
+```
+
+### الطريقة الثالثة: التشغيل كخدمة نظام دائمة (Systemd User Service) ⭐
+**الطريقة المثالية للاستخدام اليومي:** تجعل Sound OS يشتغل تلقائياً مع تشغيل الجهاز في الخلفية دون فتح أي Terminal.
+
+يوفر المشروع أداة تحكم متكاملة [`scripts/manage_service.sh`](file:///Workspace/GitHub/Sound-OS/scripts/manage_service.sh):
+
+```bash
+# تثبيت وتشغيل الخدمة تلقائياً:
+./scripts/manage_service.sh install
+
+# فحص حالة الخدمة للتأكد أنها تعمل:
+./scripts/manage_service.sh status
+
+# متابعة ما يسمعه وينفذه البرنامج لحظياً (Live Logs):
+./scripts/manage_service.sh logs
+
+# إيقاف الخدمة مؤقتاً:
+./scripts/manage_service.sh stop
+
+# إعادة تشغيل الخدمة:
+./scripts/manage_service.sh restart
+
+# إزالة الخدمة نهائياً من النظام:
+./scripts/manage_service.sh uninstall
+```
+
+### الطريقة الرابعة: التشغيل في الخلفية عبر `nohup`
+إذا كنت تريد تركه يعمل في الخلفية حتى بعد إغلاق شاشة الطرفية:
+```bash
+nohup python main.py --no-ui > soundos.log 2>&1 &
+```
+ولإيقافه في أي وقت:
+```bash
+pkill -f "python main.py"
+```
 
 ---
 
-## 📁 Repository Structure & Roles
+## 🗣️ دليل الأوامر الصوتية المدعومة (Supported Commands)
 
-| Folder | Owner | Role & Functionality |
+يدعم النظام مئات الصياغات باللغتين العربية والإنجليزية. إليك أمثلة عملية:
+
+### 1. التحكم في التطبيقات (Apps Control)
+| الأمر بالعربية | الأمر بالإنجليزية | الوظيفة |
 |---|---|---|
-| `audio/` | Abram | Mic capture, laptop rate adaptation, wake-word detection ("Hey Dave" / "ديف") |
-| `stt/` | Mahmoud | Speech-to-text (offline faster-whisper, candidate scoring, VAD endpointing) |
-| `intent_parser/` | Kero | Intent parser, multi-action compound splitters, regex & LLM rules |
-| `safety/` | Antonius | Action guardrails (allow, confirm, block dangerous actions) |
-| `executor/` | Yassin | Execution engine (apps, volume, audio, brightness, files, system) |
-| `ui_tts/` | Youssef | Animated Dave GUI, system tray, fast English/Arabic TTS |
-| `tests/` | Kareem | Automated test suite (300+ pytest tests) |
-| `docs/` | Team | Architecture, contracts, and guides |
+| **افتح المتصفح** / **افتحلي فايرفوكس** / **افتح كروم** | `open browser` / `open chrome` | فتح متصفح الويب |
+| **اقفل المتصفح** / **اقفلي فايرفوكس** / **طفي الكروم** | `close browser` / `close chrome` | إغلاق تطبيق محدد |
+| **اقفل تطبيق** / **اقفل التطبيق** / **اقفل البرنامج** | `close app` / `close the app` | إغلاق التطبيق/النافذة النشطة حالياً |
+| **افتح الطرفية** / **افتح الترمينال** | `open terminal` / `launch terminal` | فتح شاشة الأوامر Terminal |
+| **افتح الآلة الحاسبة** / **هاتلي الحاسبة** | `open calculator` | فتح الآلة الحاسبة |
+| **افتح محرر النصوص** / **افتح المفكرة** | `open text editor` / `open notepad` | فتح محرر النصوص |
+| **افتح الإعدادات** / **افتح الضبط** | `open settings` | فتح لوحة إعدادات النظام |
 
-See [CONTRACT.md](CONTRACT.md) for module API agreements.
+### 2. الصوت والوسائط (Volume & Media)
+| الأمر بالعربية | الأمر بالإنجليزية | الوظيفة |
+|---|---|---|
+| **علي الصوت** / **عليلي الصوت شوية** / **ارفع الصوت** | `turn up volume` / `volume up` | زيادة مستوى الصوت |
+| **وطي الصوت** / **خفف الصوت** / **هدي الصوت** | `lower volume` / `volume down` | خفض مستوى الصوت |
+| **اكتم الصوت** / **اكتم** / **طفي الصوت** | `mute` / `silence audio` | كتم الصوت تماماً |
+| **شغل موسيقى** / **شغلي أغنية** | `play music` / `play media` | تشغيل مشغل الوسائط الافتراضي |
+
+### 3. إضاءة الشاشة (Brightness)
+| الأمر بالعربية | الأمر بالإنجليزية | الوظيفة |
+|---|---|---|
+| **اعلي السطوع** / **زود الإضاءة** | `brightness up` / `increase brightness` | زيادة سطوع الشاشة |
+| **وطي الإضاءة** / **قلل السطوع** | `brightness down` / `dim screen` | تقليل سطوع الشاشة |
+
+### 4. الملفات والمجلدات (Files & Folders)
+| الأمر بالعربية | الأمر بالإنجليزية | الوظيفة |
+|---|---|---|
+| **افتح الملفات** / **افتح مدير الملفات** | `open files` / `file manager` | فتح مدير الملفات |
+| **افتح التنزيلات** / **افتح التحميلات** | `open downloads` | فتح مجلد Downloads |
+| **افتح المستندات** | `open documents` | فتح مجلد Documents |
+| **اعرض الصور** / **افتح مجلد الصور** | `open pictures` | فتح مجلد الصور |
+| **اعمل ملف باسم notes.txt** | `create file notes.txt` | إنشاء ملف جديد في بيئة آمنة |
+
+### 5. البحث والمراسلة (Search & Messaging)
+| الأمر بالعربية | الأمر بالإنجليزية | الوظيفة |
+|---|---|---|
+| **ابحث عن الطقس اليوم** / **دور على لينكس** | `search for linux tutorials` | بحث مباشر في المتصفح |
+| **ابعت رسالة** / **ارسل رسالة** | `send message` | فتح تطبيق المراسلة/البريد الافتراضي |
+
+### 6. الأوامر المركبة (Compound Commands) 🔗
+يمكنك دمج عدة أوامر في نفس الجملة بحرف العطف **"و"** أو **"and"**:
+* *"افتح المتصفح وعلي الصوت واقفل الحاسبة"*
+* *"Open terminal and turn up volume and open files"*
+
+---
+
+## ⚙️ متغيرات البيئة وخيارات التخصيص (Environment Variables)
+
+| المتغير | القيمة الافتراضية / خيارات | الوظيفة |
+|---|---|---|
+| `SOUNDOS_NO_UI` | `0` (أو `1` للتفعيل) | تشغيل صامت بدون واجهة رسومية (Headless Mode). |
+| `SOUNDOS_TTS_LANG` | `en` (أو `ar` / `auto`) | لغة نطق المساعد الصوتي (افتراضياً إنجليزي فائق السرعة). |
+| `SOUNDOS_TTS_SPEED` | `240` | سرعة نطق الكلام (كلمة في الدقيقة عبر `espeak-ng`). |
+| `SOUNDOS_MIC_DEVICE` | فارغ (تلقائي) | تحديد رقم أو اسم مايكروفون معين يدوياً عند الحاجة. |
+| `SOUNDOS_MIC_BACKEND` | `auto` (`sounddevice` / `arecord`) | اختيار محرك تسجيل الصوت المفضل لنظامك. |
+| `SOUNDOS_DRY_RUN` | `0` (أو `1` للتجربة) | محاكاة تنفيذ الأوامر بأمان دون تطبيق تغييرات على النظام. |
+| `SOUNDOS_WAKE_THRESHOLD` | `0.5` | حساسية اكتشاف كلمة التنبيه. |
+
+---
+
+## 🧪 الاختبارات الآلية (Automated Testing)
+
+يحتوي المشروع على طاقم اختبارات شامل يتجاوز **420+ اختباراً آلياً** لفحص كل وحدات النظام:
+
+```bash
+# تشغيل جميع الاختبارات:
+pytest
+
+# تشغيل الاختبارات مع إظهار التفاصيل:
+pytest -v
+
+# فحص اختبارات معالجة اللغة العربية وفهم اللهجة:
+pytest tests/test_arabic_nlp.py
+```
+
+---
+
+## 📁 هيكلية المشروع وأدوار الوحدات (Architecture & Roles)
+
+```
+Sound-OS/
+├── audio/            # التقاط الصوت، التكيف مع ترددات اللابتوب، كشف كلمة التنبيه (Abram)
+├── stt/              # تحويل الصوت لنصوص محلياً بـ faster-whisper والـ VAD Endpointing (Mahmoud)
+├── intent_parser/    # فهم النوايا، الأوامر المركبة، والتسامح مع الأخطاء الإملائية (Kero)
+├── safety/           # مصفوفة الأمان، التحقق من الصلاحيات، فترات الحماية والتأكيد (Antonius)
+├── executor/         # محرك تنفيذ الأوامر على مستوى نظام التشغيل والتطبيقات (Yassin)
+├── ui_tts/           # الواجهة التفاعلية لروبوت Dave والمولد الصوتي ثنائي اللغة (Youssef)
+├── scripts/          # أدوات الفحص doctor.py وإدارة خدمة النظام manage_service.sh
+├── tests/            # جناح الاختبارات الآلية الشامل (Kareem)
+├── main.py           # نقطة الربط والتشغيل الرئيسية للنظام
+└── CONTRACT.md       # ميثاق واجهات الاتصال وقواعد الأمان البرمجية
+```
+
+---
+
+## 📜 الالتزام بالمعايير (Contract)
+جميع الدوال العامة في جميع وحدات المشروع تلتزم بقاعدة **"Never Raise"** الموثقة في [`CONTRACT.md`](CONTRACT.md)؛ بحيث لا يتوقف البرنامج إطلاقاً بسبب خطأ عابر في المايكروفون أو في نظام التشغيل.
