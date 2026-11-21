@@ -9,6 +9,9 @@ import os
 import sys
 import time
 
+if sys.platform.startswith("linux") and "DISPLAY" in os.environ and "QT_QPA_PLATFORM" not in os.environ:
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ui_tts import dave_desktop as dave

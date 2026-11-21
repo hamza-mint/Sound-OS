@@ -53,9 +53,12 @@ def _spawn():
         pkg = __name__.rpartition(".")[0] or "ui_tts"
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         flags = 0x08000000 if sys.platform == "win32" else 0     # no extra console window
+        env = dict(os.environ)
+        if sys.platform.startswith("linux") and "DISPLAY" in os.environ and "QT_QPA_PLATFORM" not in os.environ:
+            env["QT_QPA_PLATFORM"] = "xcb"
         _proc = subprocess.Popen([sys.executable, "-m", pkg + ".dave_desktop"],
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
-                                 encoding="utf-8", cwd=root, creationflags=flags)
+                                 encoding="utf-8", cwd=root, creationflags=flags, env=env)
         threading.Thread(target=_read_window, args=(_proc,), daemon=True).start()
         if SPEAK_OWN_LINES:
             threading.Thread(target=_warm_voice, daemon=True).start()
@@ -201,8 +204,7 @@ def _make_window_class():
 
     Qt = QtCore.Qt
     DEBUG = bool(os.environ.get("DAVE_DEBUG"))
-    FLAGS = (Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
-             | Qt.WindowType.Tool)
+    FLAGS = (Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
     TEXT_FLAGS = Qt.AlignmentFlag.AlignCenter.value | Qt.TextFlag.TextWordWrap.value
     FLY_IN, WAVE, FLY_OUT = 1.1, 1.5, 1.3     # seconds: fly in, wave hello, fly away
     MIN_STATE_SECONDS = 0.7                    # each mood stays at least this long, so none is missed
@@ -232,6 +234,7 @@ def _make_window_class():
             self.speech_until = 0.0                    # while he is speaking, mood bubbles stay out of the way
             self.scene, self.now = None, time.perf_counter()
             self.press = self.drag = None
+            self.is_dragging = False
             self.mask_key = None
             self.failed = False
             self.timer = QtCore.QTimer(self)
@@ -378,25 +381,8 @@ def _make_window_class():
                     traceback.print_exc()
 
         def update_mask(self):
-            """Linux: only the parts that are drawn catch mouse clicks, so the see-through
-            rest of the window lets clicks reach the windows behind it. Windows does this
-            by itself."""
-            if sys.platform == "win32":
-                return
-            if self.drag is not None or self.phase != "live":
-                rects = [QtCore.QRect(0, 0, SW, SH)]
-            else:
-                rects = [QtCore.QRect(20, 5, 380, 252)]                      # complete character hitbox
-                if self.bubble_rect is not None:
-                    rects.append(self.bubble_rect)
-            key = tuple((r.x(), r.y(), r.width(), r.height()) for r in rects)
-            if key == self.mask_key:
-                return
-            self.mask_key = key
-            region = QtGui.QRegion(rects[0])
-            for r in rects[1:]:
-                region = region.united(QtGui.QRegion(r))
-            self.setMask(region)
+            # Translucent background handles transparency without interfering with mouse drag tracking
+            pass
 
         # ----- painting (Qt draws Dave directly: smooth, see-through, fast) -----
         def paintEvent(self, event):
@@ -461,44 +447,49 @@ def _make_window_class():
                 if self.phase == "intro":
                     self.phase = "live"
                     self.scale = 1.0
+                    self.landed = True
+                    self.rest = self.pos()
                 pos = event.globalPosition().toPoint()
                 self.press = pos
-                self.drag = pos - self.frameGeometry().topLeft()
-                try:
-                    self.grabMouse()
-                    self.setCursor(Qt.CursorShape.ClosedHandCursor)
-                except Exception:
-                    pass
+                self.drag = pos - self.pos()
+                self.is_dragging = False
 
         def mouseMoveEvent(self, event):
-            if self.drag is not None:
-                self.move(event.globalPosition().toPoint() - self.drag)
+            if self.drag is not None and (event.buttons() & Qt.MouseButton.LeftButton):
+                pos = event.globalPosition().toPoint()
+                if self.press is not None and (pos - self.press).manhattanLength() >= 3:
+                    self.is_dragging = True
+                    try:
+                        self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                    except Exception:
+                        pass
+                    new_pos = pos - self.drag
+                    self.move(new_pos)
+                    self.rest = new_pos
 
         def mouseReleaseEvent(self, event):
             if event.button() == Qt.MouseButton.LeftButton:
                 try:
-                    self.releaseMouse()
                     self.setCursor(Qt.CursorShape.ArrowCursor)
                 except Exception:
                     pass
-                if self.press is not None:
-                    moved = (event.globalPosition().toPoint() - self.press).manhattanLength()
-                    if moved < 5 and self.bubble is None:               # a click (not a drag), and he is not busy
-                        import random
-                        line = random.choice(CLICK_LINES)
-                        self.say(line, 1.8)
-                        self.emit({"speak": line})
-            self.press = self.drag = None
+                if not getattr(self, "is_dragging", False) and self.press is not None and self.bubble is None:
+                    import random
+                    line = random.choice(CLICK_LINES)
+                    self.say(line, 1.8)
+                    self.emit({"speak": line})
+                self.press = self.drag = None
+                self.is_dragging = False
 
         def enterEvent(self, event):
-            if self.drag is None:
+            if not getattr(self, "is_dragging", False):
                 try:
                     self.setCursor(Qt.CursorShape.OpenHandCursor)
                 except Exception:
                     pass
 
         def leaveEvent(self, event):
-            if self.drag is None:
+            if not getattr(self, "is_dragging", False):
                 try:
                     self.setCursor(Qt.CursorShape.ArrowCursor)
                 except Exception:
@@ -519,6 +510,8 @@ def _make_window_class():
 
 
 def _window_main():
+    if sys.platform.startswith("linux") and "DISPLAY" in os.environ and "QT_QPA_PLATFORM" not in os.environ:
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
     try:
         from PySide6 import QtWidgets
     except Exception:

@@ -5,7 +5,11 @@ Run the real loop:       python main.py
 import argparse
 import os
 import re
+import sys
 import time
+
+if sys.platform.startswith("linux") and "DISPLAY" in os.environ and "QT_QPA_PLATFORM" not in os.environ:
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
 
 from audio import wait_for_wake_word, record_utterance, get_pending_command
 from stt import transcribe
