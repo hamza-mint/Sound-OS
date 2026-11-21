@@ -42,8 +42,8 @@ SETTINGS = dict(
     smooth=2,          # softens the hiss
     wobble=0.15,       # volume flutter (0 = off)
     wobble_hz=9.0,
-    pause=0.3,         # seconds of silence after each sentence
-    lead=0.6,          # seconds of silence before the voice starts
+    pause=0.15,        # seconds of silence after each sentence (snappy)
+    lead=0.02,         # minimal silence at start (fast response)
 )
 HOP = 0.02             # the mouth level is measured every 20 ms
 BUBBLE = True          # also show what he says in his speech bubble
@@ -57,6 +57,48 @@ _listeners = []        # extra functions that want the mouth level, e.g. a demo
 _warned = set()
 _warm_lock = threading.Lock()   # warm-up phrases are made one at a time
 _last_level = [-1.0, 0.0]     # last mouth level sent, and when
+
+_loaded_voices = {}
+_voice_lock = threading.Lock()
+
+COMMON_PHRASES = (
+    "Done!",
+    "Opened chrome",
+    "Opened firefox",
+    "Opened terminal",
+    "Opened files",
+    "Closed current window",
+    "Closed application.",
+    "Volume increased.",
+    "Volume decreased.",
+    "Sound muted.",
+    "Brightness increased.",
+    "Brightness decreased.",
+    "File created.",
+    "File deleted.",
+    "Searching for",
+    "Playing media",
+    "Cancelled.",
+    "Shut down computer? Say yes or no.",
+    "Command blocked for safety.",
+    "Sorry, I did not understand that.",
+    "Oops, that didn't work.",
+)
+
+
+def get_piper_voice(model_path):
+    """Load and cache PiperVoice in-memory for ultra-fast, zero-overhead synthesis."""
+    if not model_path:
+        return None
+    with _voice_lock:
+        if model_path not in _loaded_voices:
+            try:
+                from piper import PiperVoice
+                _loaded_voices[model_path] = PiperVoice.load(model_path)
+            except Exception as e:
+                _warn("piper_load", f"Could not load Piper in-memory ({e}); using CLI fallback.")
+                return None
+        return _loaded_voices.get(model_path)
 
 
 def _warn(key, message):
@@ -100,7 +142,15 @@ def find_voice(name):
 #  Making the speech
 # =====================================================================
 def _synth_sentence(sentence, model, out_path):
-    """Ask Piper to speak one sentence into a WAV file."""
+    """Ask Piper to speak one sentence into a WAV file via fast in-memory engine (or fallback)."""
+    pv = get_piper_voice(model)
+    if pv is not None:
+        try:
+            with wave.open(out_path, "wb") as wf:
+                pv.synthesize_wav(sentence, wf)
+            return
+        except Exception:
+            pass
     flags = 0x08000000 if sys.platform == "win32" else 0          # no console flash on Windows
     subprocess.run([sys.executable, "-m", "piper", "-m", model, "-f", out_path, "--", sentence],
                    check=True, capture_output=True, timeout=90, creationflags=flags)

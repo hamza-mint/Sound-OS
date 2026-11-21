@@ -30,6 +30,7 @@ PROMPTS = {
 }
 
 SILENCE_RMS = 0.003    # gate for (almost) digital silence; VAD handles real noise
+_FOREIGN_SCRIPT = re.compile("[\u0400-\u04FF\u0900-\u097F\u0E00-\u0E7F\u3040-\u30FF\u3400-\u9FFF\uAC00-\uD7AF]")
 MIN_SECONDS = 0.3      # shorter than this -> ignore
 MAX_WORDS_PER_SECOND = 2.5   # generous for isolated spoken commands; see trim_to_speech
 
@@ -90,6 +91,26 @@ class SpeechToText:
         return float(loud.sum()) * 0.02 + 0.1      # +0.1 s: soft word endings fall below the threshold
 
     @staticmethod
+    def has_foreign_script(text):
+        """True if the text contains Chinese/Japanese/Korean/Cyrillic/Thai/Hindi letters. Whisper writes
+        those when it hallucinates on noise (real log: '還不算是'); a command is only Arabic or Latin."""
+        return bool(_FOREIGN_SCRIPT.search(text))
+
+    @staticmethod
+    def dedupe_repeats(text):
+        """'Open calculator, open calculator.' -> 'Open calculator,'  (Whisper repeating the same clause).
+        Only identical neighbouring clauses are merged, so two different commands are untouched."""
+        parts = re.split(r"(?<=[،,.؟?!])\s+", text.strip())
+        kept, last = [], None
+        for part in parts:
+            key = " ".join(re.findall(r"[^\W_]+", part.lower()))
+            if key and key == last:
+                continue
+            kept.append(part)
+            last = key or last
+        return " ".join(kept)
+
+    @staticmethod
     def trim_to_speech(text, voiced_seconds):
         """Cut words the audio cannot contain (prompt leakage).
 
@@ -139,8 +160,10 @@ class SpeechToText:
         text = " ".join(s.text.strip() for s in segments).strip()
         if self._is_repetitive(text):
             text = ""
+        elif text and self.has_foreign_script(text):
+            text = ""
         elif text:
-            text = self.trim_to_speech(text, self.voiced_seconds(audio))
+            text = self.trim_to_speech(self.dedupe_repeats(text), self.voiced_seconds(audio))
         return text, info
 
     def transcribe(self, audio, language=None, use_prompt=True, prompt=None):

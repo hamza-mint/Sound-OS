@@ -87,11 +87,12 @@ def _on_window_event(event):
 
 
 def _warm_voice():
-    """Get his own lines ready while the window starts, so they play instantly."""
+    """Get his own lines and common responses ready while the window starts, so they play instantly."""
     try:
         from . import dave_voice
         from .dave_character import GREETING
-        for line in (GREETING,) + CLICK_LINES:
+        phrases = (GREETING,) + CLICK_LINES + getattr(dave_voice, "COMMON_PHRASES", ())
+        for line in phrases:
             dave_voice.warm(line, "en")
     except Exception:
         pass
@@ -382,14 +383,10 @@ def _make_window_class():
             by itself."""
             if sys.platform == "win32":
                 return
-            if self.phase != "live":
+            if self.drag is not None or self.phase != "live":
                 rects = [QtCore.QRect(0, 0, SW, SH)]
             else:
-                rects = [QtCore.QRect(84, 56, 214, 206)]                      # his body
-                if self.sprite.bub > 0.03:
-                    rects.append(QtCore.QRect(236, 30, 130, 96))              # thinking bubble
-                if self.sprite.state == "ok":
-                    rects.append(QtCore.QRect(14, 40, 352, 222))              # sparkles
+                rects = [QtCore.QRect(20, 5, 380, 252)]                      # complete character hitbox
                 if self.bubble_rect is not None:
                     rects.append(self.bubble_rect)
             key = tuple((r.x(), r.y(), r.width(), r.height()) for r in rects)
@@ -458,26 +455,54 @@ def _make_window_class():
             p.drawText(QtCore.QRectF(x + 8, y + 4, w - 16, h - 8), b["text"], opt)
             p.restore()
 
-        # ----- mouse: drag Dave around, click him, right-click for the menu -----
+        # ----- mouse: drag Dave around anywhere freely, click him, right-click for menu -----
         def mousePressEvent(self, event):
-            if self.phase == "live" and event.button() == Qt.MouseButton.LeftButton:
+            if self.phase != "outro" and event.button() == Qt.MouseButton.LeftButton:
+                if self.phase == "intro":
+                    self.phase = "live"
+                    self.scale = 1.0
                 pos = event.globalPosition().toPoint()
                 self.press = pos
                 self.drag = pos - self.frameGeometry().topLeft()
+                try:
+                    self.grabMouse()
+                    self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                except Exception:
+                    pass
 
         def mouseMoveEvent(self, event):
             if self.drag is not None:
                 self.move(event.globalPosition().toPoint() - self.drag)
 
         def mouseReleaseEvent(self, event):
-            if event.button() == Qt.MouseButton.LeftButton and self.press is not None:
-                moved = (event.globalPosition().toPoint() - self.press).manhattanLength()
-                if moved < 5 and self.bubble is None:               # a click (not a drag), and he is not busy
-                    import random
-                    line = random.choice(CLICK_LINES)
-                    self.say(line, 1.8)
-                    self.emit({"speak": line})
+            if event.button() == Qt.MouseButton.LeftButton:
+                try:
+                    self.releaseMouse()
+                    self.setCursor(Qt.CursorShape.ArrowCursor)
+                except Exception:
+                    pass
+                if self.press is not None:
+                    moved = (event.globalPosition().toPoint() - self.press).manhattanLength()
+                    if moved < 5 and self.bubble is None:               # a click (not a drag), and he is not busy
+                        import random
+                        line = random.choice(CLICK_LINES)
+                        self.say(line, 1.8)
+                        self.emit({"speak": line})
             self.press = self.drag = None
+
+        def enterEvent(self, event):
+            if self.drag is None:
+                try:
+                    self.setCursor(Qt.CursorShape.OpenHandCursor)
+                except Exception:
+                    pass
+
+        def leaveEvent(self, event):
+            if self.drag is None:
+                try:
+                    self.setCursor(Qt.CursorShape.ArrowCursor)
+                except Exception:
+                    pass
 
         def contextMenuEvent(self, event):
             menu = QtWidgets.QMenu(self)

@@ -4,6 +4,7 @@ Run the real loop:       python main.py
 """
 import argparse
 import os
+import re
 import time
 
 from audio import wait_for_wake_word, record_utterance, get_pending_command
@@ -11,7 +12,7 @@ from stt import transcribe
 from intent_parser import parse, parse_yes_no, split_compound
 from safety import check, notify_confirmed
 from executor import execute
-from ui_tts import speak, notify, play_wake_ack, play_done_sound
+from ui_tts import speak, notify, play_wake_ack, play_done_sound, wait_until_silent, strip_own_speech
 try:
     from ui_tts.dave_bridge import on_wake, on_heard, on_done
 except ImportError:
@@ -51,6 +52,11 @@ def _execute_single(text, ask_yes_no, lang_hint=None, confidence=1.0, parsed=Non
     result = execute(parsed)                      # {"success": bool, "message": str}
     result["lang"] = lang
     return result
+
+
+def _speakable(msg):
+    """Text for the voice: the [DRY-RUN] / [تجربة] tag is for the screen, read aloud it was 'D-R-Y R-U-N'."""
+    return re.sub(r"\[(?:DRY-RUN|تجربة)\]\s*", "", str(msg or "")).strip()
 
 
 def handle(text, ask_yes_no, lang_hint=None, confidence=1.0):
@@ -103,9 +109,9 @@ def handle(text, ask_yes_no, lang_hint=None, confidence=1.0):
 
     if all_success:
         if combined_msg:
-            speak(combined_msg, lang)
+            speak(_speakable(combined_msg), lang)
     else:
-        speak(combined_msg or ("Failed." if lang == "en" else "فشل."), lang)
+        speak(_speakable(combined_msg) or ("Failed." if lang == "en" else "فشل."), lang)
 
     notify("Sound OS", combined_msg or "Done")
     on_done(all_success)
@@ -117,10 +123,16 @@ def handle(text, ask_yes_no, lang_hint=None, confidence=1.0):
 
 def listen_utterance():
     """Real microphone path: record one utterance and return full STT metadata dict."""
+    wait_until_silent()            # never record Dave's own "Yes?" / answer (the mic hears the speakers)
     wav_path = record_utterance()
     if not wav_path:
         return {"text": "", "lang": "en", "confidence": 0.0}
-    return transcribe(wav_path)
+    res = transcribe(wav_path)
+    cleaned = strip_own_speech(res.get("text", ""))
+    if cleaned != res.get("text", ""):
+        print(f"[Sound OS] 🔇 Ignored Dave's own voice: {res.get('text', '')!r} -> {cleaned!r}")
+        res = dict(res, text=cleaned)
+    return res
 
 
 def listen_text():
@@ -148,6 +160,7 @@ if __name__ == "__main__":
     else:
         print("[Sound OS] Ready and listening for wake word or direct command...")
         while True:
+            wait_until_silent()        # finish speaking first, so the wake word listener doesn't hear Dave
             wait_for_wake_word()
             pending_cmd = get_pending_command()
             if pending_cmd:
