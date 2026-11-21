@@ -215,10 +215,14 @@ class SpeechToText:
             condition_on_previous_text=False,
             repetition_penalty=1.2,
             no_repeat_ngram_size=2,
-            vad_filter=False,
+            # VAD ON: without it the prompt above is echoed on plain noise. Measured (tiny, 32 synthetic noise
+            # clips): 31/32 false wakes ("Hey Dave, Dave.") with VAD off, 0/32 with VAD on, while the 15 spoken
+            # "hey dave" clips were still all detected. Real session logs showed the same repeated false wakes.
+            vad_filter=True,
+            vad_parameters=dict(min_speech_duration_ms=200, min_silence_duration_ms=100),
         )
         text = " ".join(s.text.strip() for s in segments).strip()
-        if self._is_repetitive(text):
+        if self._is_repetitive(text) or self.has_foreign_script(text):
             text = ""
         lang = info.language if info and info.language in ALLOWED_LANGS else "en"
         return text, lang

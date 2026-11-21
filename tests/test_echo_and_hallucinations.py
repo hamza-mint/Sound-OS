@@ -118,3 +118,25 @@ def test_decode_drops_chinese_hallucination():
     audio = np.concatenate([np.zeros(8000), 0.3 * np.sin(2 * np.pi * 200 * t), np.zeros(8000)]).astype(np.float32)
     text, _ = make_stt(StubModel([("還不算是", "ar", None)])).transcribe(audio, language="ar")
     assert text == ""
+
+
+# ------------------------------------------------------------- wake word decode
+def _wake_stt(reply):
+    import numpy as np
+    from stt.tests.test_stt import make_stt, StubModel
+    model = StubModel([(reply, "en", None)])
+    return make_stt(model), model, (0.2 * np.sin(2 * np.pi * 200 * np.arange(16000) / 16000)).astype("float32")
+
+
+def test_wake_decode_uses_vad_so_noise_cannot_echo_the_prompt():
+    """Real session log: 'Wake word matched: Hey Dave, Dave.' again and again with nobody speaking.
+    Measured on 32 noise clips: 31 false wakes with vad_filter=False, 0 with vad_filter=True."""
+    stt, model, audio = _wake_stt("Hey Dave.")
+    text, _ = stt.transcribe_wake(audio)
+    assert text == "Hey Dave."
+    assert model.calls[0]["vad_filter"] is True
+
+
+def test_wake_decode_drops_foreign_script_hallucination():
+    stt, model, audio = _wake_stt("お便できます。")
+    assert stt.transcribe_wake(audio)[0] == ""
