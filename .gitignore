@@ -21,6 +21,9 @@ venv/
 *.mp3
 models/
 vosk-model*/
+piper-voices/
+*.onnx
+*.onnx.json
 
 # Editor and OS
 .vscode/
