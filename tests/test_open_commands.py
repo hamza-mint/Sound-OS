@@ -1,0 +1,116 @@
+"""'open downloads', 'open documents', 'create file notes.txt', 'open settings'.
+The typed commands always worked (parser + executor). By VOICE they failed because Whisper tiny writes
+'open downloads' as 'Hoping down loads' / 'Oben downloads' (seen in a real session log).
+Run: pytest -q tests/test_open_commands.py
+"""
+import pytest
+
+from intent_parser import parse, clear_fuzzy_cache
+
+
+@pytest.mark.parametrize("phrase,folder", [
+    ("open downloads", "downloads"), ("open the downloads", "downloads"), ("opening downloads", "downloads"),
+    ("hoping down loads", "downloads"), ("oben downloads", "downloads"), ("open down loads", "downloads"),
+    ("downloads", "downloads"), ("down loads", "downloads"), ("افتح التحميلات", "downloads"),
+    ("افتح الداونلودز", "downloads"),
+    ("open documents", "documents"), ("open my documents", "documents"), ("opening documents", "documents"),
+    ("obing documents", "documents"), ("oben document", "documents"), ("documents", "documents"),
+    ("افتح المستندات", "documents"), ("افتح الدوكيومنتس", "documents"), ("المستندات", "documents"),
+])
+def test_open_folder_phrases_and_mishearings(phrase, folder):
+    out = parse(phrase)
+    assert (out["intent"], out["params"]) == ("open_folder", {"folder": folder})
+
+
+@pytest.mark.parametrize("phrase", ["open settings", "opening settings", "oben settings", "hoping settings",
+                                    "settings", "افتح الاعدادات", "افتح الإعدادات", "open system settings"])
+def test_open_settings(phrase):
+    out = parse(phrase)
+    assert (out["intent"], out["params"]) == ("open_app", {"app": "settings"})
+
+
+@pytest.mark.parametrize("phrase,name", [
+    ("create file notes.txt", "notes.txt"), ("create file notes dot txt", "notes.txt"),
+    ("make a file notes.txt", "notes.txt"), ("new file notes.txt", "notes.txt"),
+    ("اعمل ملف notes.txt", "notes.txt"),
+])
+def test_create_file(phrase, name):
+    out = parse(phrase)
+    assert (out["intent"], out["params"]) == ("create_file", {"name": name})
+
+
+def test_the_new_bare_folder_and_verb_repair_rules_do_not_steal_other_commands():
+    assert parse("play music")["intent"] == "play_media"         # not "open the music folder"
+    assert parse("volume down")["intent"] == "volume_down"
+    assert parse("hoping for the best")["intent"] == "unknown"
+    assert parse("opening hours")["intent"] == "unknown"
+    assert parse("i am opening a shop")["intent"] == "unknown"
+
+
+def test_a_mis_heard_open_can_never_close_or_shut_down():
+    """The 'open' repair may only open things."""
+    for phrase in ["hoping the computer", "oben the device", "obing the system"]:
+        assert parse(phrase)["intent"] not in ("shutdown", "close_app", "delete_file", "send_message")
+
+
+def test_send_message_parameter_extraction_english():
+    """send_message should extract recipient and message body when present."""
+    # Full command: "send message to john saying hello"
+    out = parse("send message to john saying hello")
+    assert out["intent"] == "send_message"
+    assert out["params"].get("recipient") == "john"
+    assert out["params"].get("message") == "hello"
+
+    # With "with text"
+    out = parse("send message to alice with text meeting at 5")
+    assert out["params"].get("recipient") == "alice"
+    assert out["params"].get("message") == "meeting at 5"
+
+    # Body only
+    out = parse("send message saying hello world")
+    assert "recipient" not in out["params"]
+    assert out["params"].get("message") == "hello world"
+
+    # Bare command - empty params allowed
+    out = parse("send message")
+    assert out["intent"] == "send_message"
+    assert out["params"] == {}
+
+
+def test_send_message_parameter_extraction_arabic():
+    """send_message should extract recipient and message in Egyptian Arabic."""
+    # "ابعت رسالة لأحمد بتقول السلام عليكم"
+    out = parse("ابعت رسالة لاحمد بتقول السلام عليكم")
+    assert out["intent"] == "send_message"
+    assert out["params"].get("recipient") == "احمد"
+    assert out["params"].get("message") == "السلام عليكم"
+
+    # With "الي"
+    out = parse("ابعث رسالة الي ساره نصها تعالي")
+    assert out["params"].get("recipient") == "ساره"
+    assert out["params"].get("message") == "تعالي"
+
+    # Body only "ابعت رسالة بتقول مرحبا"
+    out = parse("ارسل رسالة بتقول مرحبا")
+    assert "recipient" not in out["params"]
+    assert out["params"].get("message") == "مرحبا"
+
+    # Prefixed lam "لحسام بتقول تمام"
+    out = parse("ابعت رساله لحسام بتقول تمام")
+    assert out["params"].get("recipient") == "حسام"
+    assert out["params"].get("message") == "تمام"
+
+    # Bare Arabic
+    out = parse("ابعت رسالة")
+    assert out["intent"] == "send_message"
+    assert out["params"] == {}
+
+
+def test_clear_fuzzy_cache():
+    """clear_fuzzy_cache should invalidate internal caches without error."""
+    # Just ensure it's callable and doesn't raise
+    clear_fuzzy_cache()
+    # Subsequent parse should still work
+    out = parse("open downloads")
+    assert out["intent"] == "open_folder"
+    assert out["params"]["folder"] == "downloads"

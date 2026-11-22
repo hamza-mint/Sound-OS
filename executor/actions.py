@@ -7,6 +7,8 @@ import os
 import shutil
 import socket
 import subprocess
+import threading
+import time
 import urllib.parse
 from pathlib import Path
 from typing import Tuple, Dict, Any, Optional
@@ -34,8 +36,12 @@ def check_internet_connection(timeout_sec: float = 0.2) -> bool:
 is_online = check_internet_connection
 
 
-def _run_subcommand(args: list[str]) -> Tuple[bool, str]:
-    """Run a command safely without shell=True."""
+def _run_subcommand(args: list[str], timeout_sec: float = 0.85) -> Tuple[bool, str]:
+    """Run a command safely without shell=True.
+
+    Default timeout reduced to 0.85s per CONTRACT.md §7 (executor must complete under 1 second).
+    Multi-step operations (web_search, play_media) should pass remaining budget.
+    """
     if not args:
         return False, "Empty arguments list."
     binary = args[0]
@@ -48,17 +54,19 @@ def _run_subcommand(args: list[str]) -> Tuple[bool, str]:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=5,
+            timeout=timeout_sec,
         )
         if proc.returncode == 0:
             return True, proc.stdout.strip()
         err = proc.stderr.strip() or proc.stdout.strip()
         return False, err or f"Process exited with code {proc.returncode}."
+    except subprocess.TimeoutExpired:
+        return False, f"Command timed out after {timeout_sec}s."
     except Exception as exc:
         return False, str(exc)
 
 
-def _spawn_detached(args: list[str]) -> Tuple[bool, str]:
+def _spawn_detached(args: list[str], timeout_sec: float = 0.85) -> Tuple[bool, str]:
     """Spawn a detached GUI or background process safely."""
     if not args:
         return False, "Empty arguments list."
@@ -218,6 +226,7 @@ def adjust_brightness(direction: str) -> Tuple[bool, str]:
 # Application Controls (Open / Graceful Close)
 # ---------------------------------------------------------
 _last_launched_process: Optional[str] = None
+_process_lock = threading.Lock()
 
 
 def launch_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
@@ -230,7 +239,8 @@ def launch_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
     global _last_launched_process
     proc_name = app_config.get("process", "")
     if proc_name:
-        _last_launched_process = proc_name
+        with _process_lock:
+            _last_launched_process = proc_name
 
     # Check if app is already running and focus its window
     if proc_name and shutil.which("wmctrl"):
@@ -261,6 +271,7 @@ def terminate_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
     falling back to pkill -x with candidate process names.
     Supports closing the active/current window or running app when process is 'current'.
     """
+    global _last_launched_process
     proc_name = app_config.get("process")
     if not proc_name:
         return False, "No process name defined for this application."
@@ -279,22 +290,31 @@ def terminate_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
                 return True, "Closed active window."
 
         # 2. Try closing the most recently launched app
-        if _last_launched_process:
-            ok, _ = _run_subcommand(["pkill", "-x", _last_launched_process])
+        with _process_lock:
+            target_proc = _last_launched_process
+        if target_proc:
+            ok, _ = _run_subcommand(["pkill", "-x", target_proc])
             if ok:
-                return True, f"Closed {_last_launched_process}."
+                with _process_lock:
+                    if _last_launched_process == target_proc:
+                        _last_launched_process = None
+                return True, f"Closed {target_proc}."
 
         # 3. Find any running known desktop application
         known_candidates = [
             "firefox", "google-chrome", "chrome", "chromium", "vlc",
             "thunar", "nautilus", "gnome-calculator", "kcalc",
-            "mousepad", "gedit", "xfce4-terminal", "gnome-terminal"
+            "mousepad", "gedit", "xfce4-terminal", "gnome-terminal",
+            "code", "telegram-desktop", "spotify", "soffice.bin", "brave-browser", "msedge"
         ]
         if shutil.which("pgrep"):
             for cand in known_candidates:
                 ok, _ = _run_subcommand(["pgrep", "-x", cand])
                 if ok:
                     _run_subcommand(["pkill", "-x", cand])
+                    with _process_lock:
+                        if _last_launched_process == cand:
+                            _last_launched_process = None
                     return True, f"Closed {cand}."
 
         # Nothing was closed: say so (reporting success here made the voice answer "Closed" for nothing)
@@ -304,6 +324,9 @@ def terminate_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
     if shutil.which("wmctrl"):
         ok, _ = _run_subcommand(["wmctrl", "-c", proc_name])
         if ok:
+            with _process_lock:
+                if _last_launched_process == proc_name:
+                    _last_launched_process = None
             return True, f"Gracefully closed {proc_name}."
 
     # 2. Standard pkill termination with fallbacks
@@ -318,6 +341,9 @@ def terminate_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
         ok, _ = _run_subcommand(["pkill", "-x", p])
         if ok:
             closed_any = True
+            with _process_lock:
+                if _last_launched_process == p:
+                    _last_launched_process = None
 
     if closed_any:
         return True, f"Closed {proc_name}."
@@ -327,8 +353,38 @@ def terminate_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
 # ---------------------------------------------------------
 # File & Folder Management
 # ---------------------------------------------------------
+_FILE_MANAGERS = ("dolphin", "thunar", "nautilus", "nemo", "pcmanfm-qt", "pcmanfm", "caja")
+_DESKTOP_FM = {"KDE": "dolphin", "XFCE": "thunar", "GNOME": "nautilus", "CINNAMON": "nemo",
+               "MATE": "caja", "LXQT": "pcmanfm-qt", "LXDE": "pcmanfm"}
+
+
+def _file_manager_cmd(path: str) -> list:
+    """Command that shows `path` in a FILE MANAGER.
+
+    Plain `xdg-open <folder>` opens whatever program is registered for "inode/directory". On a developer machine
+    that is often an editor or a browser (real case: antigravity.desktop), so "open downloads" opened the wrong
+    app. We use xdg-open only when the registered handler really is a file manager; otherwise we start one.
+    SOUNDOS_FILE_MANAGER=<binary> forces a choice."""
+    forced = os.environ.get("SOUNDOS_FILE_MANAGER", "").strip()
+    if forced and shutil.which(forced):
+        return [forced, path]
+    try:
+        out = subprocess.run(["xdg-mime", "query", "default", "inode/directory"], capture_output=True,
+                             text=True, timeout=2).stdout.lower()
+        if any(fm in out for fm in _FILE_MANAGERS) and shutil.which("xdg-open"):
+            return ["xdg-open", path]
+    except Exception:
+        pass
+    desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").upper()
+    preferred = [fm for key, fm in _DESKTOP_FM.items() if key in desktop]
+    for fm in preferred + list(_FILE_MANAGERS):
+        if shutil.which(fm):
+            return [fm, path]
+    return ["xdg-open", path]
+
+
 def open_directory(folder_path_str: str) -> Tuple[bool, str]:
-    """Open folder in default file manager (Thunar / Nautilus / Dolphin) via xdg-open."""
+    """Open a folder in the file manager (see _file_manager_cmd)."""
     path = Path(os.path.expanduser(folder_path_str)).resolve()
     if not path.exists():
         try:
@@ -336,11 +392,14 @@ def open_directory(folder_path_str: str) -> Tuple[bool, str]:
         except Exception as exc:
             return False, f"Folder does not exist and could not be created: {exc}"
 
-    return _spawn_detached(["xdg-open", str(path)])
+    return _spawn_detached(_file_manager_cmd(str(path)))
 
 
 def create_user_file(filename: str = "new_file.txt") -> Tuple[bool, str]:
-    """Create a new empty file inside ~/SoundOS_Files/."""
+    """Create a new empty file inside ~/SoundOS_Files/.
+
+    Rejects if file already exists (no overwrite).
+    """
     clean_name = os.path.basename(filename).strip() if filename else "new_file.txt"
     if not clean_name:
         clean_name = "new_file.txt"
@@ -351,8 +410,11 @@ def create_user_file(filename: str = "new_file.txt") -> Tuple[bool, str]:
     SAFE_FILES_DIR.mkdir(parents=True, exist_ok=True)
     target_file = SAFE_FILES_DIR / clean_name
 
+    if target_file.exists():
+        return False, f"File '{clean_name}' already exists."
+
     try:
-        target_file.touch(exist_ok=True)
+        target_file.touch(exist_ok=False)
         return True, f"File '{clean_name}' created at {SAFE_FILES_DIR}."
     except Exception as exc:
         return False, f"Failed to create file: {exc}"
@@ -385,11 +447,17 @@ def delete_user_file(filename: str, dry_run: bool = False) -> Tuple[bool, str]:
 # ---------------------------------------------------------
 # Web Search & Media
 # ---------------------------------------------------------
-def search_web(query: str, check_net: bool = True) -> Tuple[bool, str]:
+def search_web(query: str, check_net: bool = True, budget_sec: float = 0.85) -> Tuple[bool, str]:
     """
     Open default browser with Google search.
     Follows CONTRACT.md §4: 'web_search needs internet; say so in the message if offline.'
+
+    Args:
+        query: Search query string
+        check_net: Whether to check internet connectivity
+        budget_sec: Remaining time budget for this operation (default 0.85s)
     """
+    t0 = time.monotonic()
     clean_query = (query or "").strip()
     if not clean_query:
         return False, "Empty search query."
@@ -397,27 +465,41 @@ def search_web(query: str, check_net: bool = True) -> Tuple[bool, str]:
     if check_net and not check_internet_connection():
         return False, "offline"
 
+    # Check remaining budget before launching browser
+    elapsed = time.monotonic() - t0
+    remaining = max(0.1, budget_sec - elapsed)
+
     encoded = urllib.parse.quote(clean_query)
     url = f"https://www.google.com/search?q={encoded}"
-    return _spawn_detached(["xdg-open", url])
+    return _spawn_detached(["xdg-open", url], timeout_sec=remaining)
 
 
-def play_media_content(query: str = "") -> Tuple[bool, str]:
-    """Open media player or search online media."""
+def play_media_content(query: str = "", budget_sec: float = 0.85) -> Tuple[bool, str]:
+    """Open media player or search online media.
+
+    Args:
+        query: Media search query (artist, song, etc.)
+        budget_sec: Remaining time budget for this operation (default 0.85s)
+    """
+    t0 = time.monotonic()
     clean_query = (query or "").strip()
     if clean_query:
         # If user asked for a specific artist/song, open YouTube search if online
         if not check_internet_connection():
             return False, "offline"
+
+        # Check remaining budget before launching browser
+        elapsed = time.monotonic() - t0
+        remaining = max(0.1, budget_sec - elapsed)
+
         encoded = urllib.parse.quote(clean_query)
-        return _spawn_detached(["xdg-open", f"https://www.youtube.com/results?search_query={encoded}"])
+        return _spawn_detached(["xdg-open", f"https://www.youtube.com/results?search_query={encoded}"], timeout_sec=remaining)
     else:
         # Default: open VLC / MPV / media player or music folder
         for player in ("vlc", "mpv", "totem", "celluloid"):
             if shutil.which(player):
                 return _spawn_detached([player])
-        music_dir = Path.home() / "Music"
-        return _spawn_detached(["xdg-open", str(music_dir)])
+        return open_directory(str(Path.home() / "Music"))
 
 
 # ---------------------------------------------------------

@@ -18,6 +18,7 @@ logger = logging.getLogger("soundos.executor")
 
 # CONTRACT.md §7: executor must complete under 1 second
 _MAX_EXECUTION_SECS = 1.0
+_SUB_COMMAND_TIMEOUT = 0.85  # sub-commands must complete within this
 
 CONFIG_PATH = Path(__file__).parent / "apps.json"
 _SAFE_BINARY = re.compile(r"[a-z0-9][a-z0-9._+-]{0,40}")
@@ -74,6 +75,75 @@ def _resolve_folder(folder_name: str) -> str:
     return f"~/{folder_name.strip()}"
 
 
+def _validate_params(intent: str, params: dict, lang: str) -> Tuple[bool, str]:
+    """
+    Strict per-intent input validation.
+    Returns (is_valid, error_message).
+    """
+    if not isinstance(params, dict):
+        return False, "Invalid params: must be object." if lang == "en" else "معاملات غير صالحة: يجب أن تكون كائناً."
+
+    # Per-intent validation rules
+    if intent == "open_app":
+        app = params.get("app")
+        if not app or not isinstance(app, str) or not app.strip():
+            return False, "Missing or invalid 'app' parameter (string required)." if lang == "en" else "معامل 'app' مفقود أو غير صالح (مطلوب نص)."
+
+    elif intent == "close_app":
+        app = params.get("app")
+        if app is not None and (not isinstance(app, str) or not app.strip()):
+            return False, "Invalid 'app' parameter (string required if provided)." if lang == "en" else "معامل 'app' غير صالح (مطلوب نص إن وجد)."
+
+    elif intent == "web_search":
+        query = params.get("query")
+        if not query or not isinstance(query, str) or not query.strip():
+            return False, "Missing or invalid 'query' parameter (non-empty string required)." if lang == "en" else "معامل 'query' مفقود أو غير صالح (مطلوب نص غير فارغ)."
+
+    elif intent == "create_file":
+        name = params.get("name")
+        if name is not None:
+            if not isinstance(name, str):
+                return False, "Invalid 'name' parameter (string required)." if lang == "en" else "معامل 'name' غير صالح (مطلوب نص)."
+            # Path traversal check (also done in action, but defense in depth)
+            if "/" in name or "\\" in name or ".." in name or os.path.isabs(name):
+                return False, "Invalid filename: path traversal is not permitted." if lang == "en" else "اسم ملف غير صالح: غير مسموح بالمسارات المتداخلة."
+
+    elif intent == "delete_file":
+        name = params.get("name")
+        if not name or not isinstance(name, str) or not name.strip():
+            return False, "Missing or invalid 'name' parameter (non-empty string required)." if lang == "en" else "معامل 'name' مفقود أو غير صالح (مطلوب نص غير فارغ)."
+        if "/" in name or "\\" in name or ".." in name or os.path.isabs(name):
+            return False, "Invalid filename: path traversal is not permitted." if lang == "en" else "اسم ملف غير صالح: غير مسموح بالمسارات المتداخلة."
+
+    elif intent == "open_folder":
+        folder = params.get("folder")
+        if folder is not None and (not isinstance(folder, str) or not folder.strip()):
+            return False, "Invalid 'folder' parameter (string required if provided)." if lang == "en" else "معامل 'folder' غير صالح (مطلوب نص إن وجد)."
+
+    elif intent == "play_media":
+        query = params.get("query")
+        if query is not None and (not isinstance(query, str)):
+            return False, "Invalid 'query' parameter (string required if provided)." if lang == "en" else "معامل 'query' غير صالح (مطلوب نص إن وجد)."
+
+    elif intent == "send_message":
+        recipient = params.get("recipient")
+        message = params.get("message")
+        if recipient is not None and (not isinstance(recipient, str)):
+            return False, "Invalid 'recipient' parameter (string required if provided)." if lang == "en" else "معامل 'recipient' غير صالح (مطلوب نص إن وجد)."
+        if message is not None and (not isinstance(message, str)):
+            return False, "Invalid 'message' parameter (string required if provided)." if lang == "en" else "معامل 'message' غير صالح (مطلوب نص إن وجد)."
+
+    elif intent in ("volume_up", "volume_down", "mute", "brightness_up", "brightness_down", "shutdown"):
+        # These intents accept empty params - no validation needed
+        pass
+
+    else:
+        # Unknown intent - will be caught by dispatch table
+        pass
+
+    return True, ""
+
+
 # ---------------------------------------------------------------------------
 # Handlers for Dispatch Table
 # ---------------------------------------------------------------------------
@@ -93,7 +163,10 @@ def _handle_open_app(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]
         msg = f"[DRY-RUN] Opening {canonical}" if lang == "en" else f"[تجربة] فتح تطبيق {canonical}"
         return True, msg
 
-    ok, err = actions.launch_app(cfg)
+    if canonical == "files":                       # "xdg-open ." would open the default *directory handler* (an editor?)
+        ok, err = actions.open_directory("~")
+    else:
+        ok, err = actions.launch_app(cfg)
     if ok:
         msg = f"Opened {canonical}." if lang == "en" else f"تم فتح {canonical}."
     else:
@@ -126,7 +199,10 @@ def _handle_close_app(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str
         else:
             msg = f"Closed {canonical}." if lang == "en" else f"تم إغلاق {canonical}."
     else:
-        msg = f"Could not close {canonical}: {err}" if lang == "en" else f"تعذر إغلاق {canonical}: {err}"
+        if canonical == "current":
+            msg = "Could not close active application: no running window or app found." if lang == "en" else "تعذر إغلاق التطبيق الحالي: لم يتم العثور على نافذة أو تطبيق مفتوح."
+        else:
+            msg = f"Could not close {canonical}: {err}" if lang == "en" else f"تعذر إغلاق {canonical}: {err}"
     return ok, msg
 
 
@@ -214,7 +290,7 @@ def _handle_web_search(params: dict, lang: str, dry_run: bool) -> Tuple[bool, st
         return False, msg
     if dry_run:
         return True, f"[DRY-RUN] Searching web for: {query}" if lang == "en" else f"[تجربة] بحث ويب عن: {query}"
-    ok, err = actions.search_web(query)
+    ok, err = actions.search_web(query, budget_sec=_SUB_COMMAND_TIMEOUT)
     if not ok and (err == "offline" or "No internet" in err):
         msg = "No internet connection available." if lang == "en" else "لا يوجد اتصال بالإنترنت حالياً."
         return False, msg
@@ -226,7 +302,7 @@ def _handle_play_media(params: dict, lang: str, dry_run: bool) -> Tuple[bool, st
     query = (params.get("query") or "").strip()
     if dry_run:
         return True, "[DRY-RUN] Playing media." if lang == "en" else "[تجربة] تشغيل الوسائط."
-    ok, err = actions.play_media_content(query)
+    ok, err = actions.play_media_content(query, budget_sec=_SUB_COMMAND_TIMEOUT)
     if not ok and (err == "offline" or "No internet" in err):
         msg = "No internet connection to stream media." if lang == "en" else "لا يوجد اتصال بالإنترنت لتشغيل الوسائط."
         return False, msg
@@ -286,6 +362,44 @@ DISPATCH_TABLE = {
 }
 
 
+import queue
+import threading
+from typing import Callable
+
+
+def _run_with_timeout(func: Callable, timeout_sec: float, *args, **kwargs) -> Tuple[bool, str]:
+    """
+    Run a function with a hard timeout using threading.
+    Returns (success, result_or_error_message).
+    Handler functions return (bool, str) tuples.
+    """
+    result_queue = queue.Queue()
+
+    def target():
+        try:
+            success, message = func(*args, **kwargs)
+            result_queue.put(("success", (success, message)))
+        except Exception as exc:
+            result_queue.put(("error", str(exc)))
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout_sec)
+
+    if thread.is_alive():
+        # Timeout exceeded
+        return False, "Command execution timed out."  # Will be localized by caller
+
+    try:
+        status, result = result_queue.get_nowait()
+        if status == "success":
+            return result  # result is already (bool, str) tuple from handler
+        else:
+            return False, f"Execution error: {result}"
+    except queue.Empty:
+        return False, "Command execution timed out."
+
+
 def execute(command: dict) -> dict:
     """
     Main entry point for command execution.
@@ -294,7 +408,7 @@ def execute(command: dict) -> dict:
     - Honours SOUNDOS_DRY_RUN=1 environment variable.
     - Enforces direct approval on dangerous intents (Slide 7 & 9).
     - Returns format: {"success": bool, "message": str} in the requested lang.
-    - Logs a warning if execution exceeds 1 second (CONTRACT.md §7).
+    - Enforces 1-second execution timeout with user-facing error messages (CONTRACT.md §7).
     """
     t0 = time.monotonic()
     try:
@@ -309,6 +423,11 @@ def execute(command: dict) -> dict:
         lang = command.get("lang") or "en"
         dry_run = os.getenv("SOUNDOS_DRY_RUN") == "1"
 
+        # Strict per-intent parameter validation (NEW)
+        valid, err_msg = _validate_params(intent, params, lang)
+        if not valid:
+            return {"success": False, "message": err_msg}
+
         # Direct approval enforcement for dangerous commands (Slide 7 & 9)
         # Bypassed if in dry-run mode or explicitly approved
         if intent in ("shutdown", "delete_file") and not dry_run:
@@ -321,7 +440,15 @@ def execute(command: dict) -> dict:
             msg = f"Unknown or unsupported intent: '{intent}'" if lang == "en" else f"أمر غير مدعوم أو غير معروف: '{intent}'"
             return {"success": False, "message": msg}
 
-        success, message = handler(params, lang, dry_run)
+        # Execute handler with timeout enforcement
+        timeout_msg_en = "Command execution timed out."
+        timeout_msg_ar = "انتهت مهلة تنفيذ الأمر."
+        timeout_msg = timeout_msg_en if lang == "en" else timeout_msg_ar
+
+        success, message = _run_with_timeout(handler, _MAX_EXECUTION_SECS, params, lang, dry_run)
+        if not success and "timed out" in message.lower():
+            return {"success": False, "message": timeout_msg}
+
         return {"success": bool(success), "message": message}
 
     except Exception as exc:

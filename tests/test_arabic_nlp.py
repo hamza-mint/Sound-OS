@@ -208,3 +208,21 @@ def test_shutdown_and_mute_are_not_hijacked_by_the_close_words():
 def test_fuzzy_does_not_glue_function_words_into_an_app_name():
     # "اللي فاتح" was glued to "ليفاتح" and repaired to the file manager
     assert parse("اقفل اللي فاتح")["params"] == {"app": "current"}
+
+
+# Whisper says the command and then keeps going with junk. Real outputs (base/tiny on "اقفل"):
+@pytest.mark.parametrize("heard,intent,params", [
+    ("اقفل، ابح عاماج.", "close_app", {"app": "current"}),
+    ("اقفل، اقوضم.", "close_app", {"app": "current"}),
+    ("اقفل الترمينال،", "close_app", {"app": "terminal"}),
+    ("افتح المتصفح، افضح،", "open_app", {"app": "firefox"}),
+])
+def test_command_followed_by_junk_uses_the_first_clause(heard, intent, params):
+    out = parse(heard)
+    assert (out["intent"], out["params"]) == (intent, params)
+
+
+def test_first_clause_rule_never_gives_a_dangerous_command_or_invents_one():
+    assert parse("blah, blah")["intent"] == "unknown"
+    assert parse("hello there, how are you")["intent"] == "unknown"
+    assert parse("اطفي الجهار، كده")["intent"] == "unknown"

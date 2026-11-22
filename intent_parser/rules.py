@@ -93,8 +93,8 @@ APPS = {   # canonical name (what the executor receives) -> spoken aliases
 }
 FOLDERS = {
     "home":      ["بيت", "هوم", "home", "رئيسيه"],
-    "downloads": ["تحميلات", "تنزيلات", "downloads", "download"],
-    "documents": ["مستندات", "مستنداتي", "وثائق", "documents", "docs"],
+    "downloads": ["تحميلات", "تنزيلات", "داونلودز", "داونلود", "downloads", "download", "down loads"],
+    "documents": ["مستندات", "مستنداتي", "وثائق", "دوكيومنتس", "دوكيومنت", "documents", "document", "docs"],
     "desktop":   ["سطح المكتب", "ديسكتوب", "desktop"],
     "pictures":  ["صور", "pictures", "photos", "images"],
     "music":     ["موسيقي", "موسيقا", "music"],
@@ -114,7 +114,7 @@ NOISE = W("ممكن", "لو سمحت", "من فضلك", "يا ريت", "بالل
 OPEN_ANY = V("افتح", "فتح", "تفتح", "شغل", "تشغل", "وريني", "ودني", "وديني", "روح", "هات", "طلعلي",
              "ابدا", "ادخل علي", "اعرض", "اظهر", "open", "oven", "launch", "start", "run", "show", "bring up")
 OPEN_NAV = V("افتح", "فتح", "تفتح", "وريني", "ودني", "وديني", "روح", "هات", "طلعلي", "ادخل علي", "اعرض", "اظهر",
-             "open", "show", "go to", "take me to", "browse")          # no "شغل": that means play
+             "open", "opening", "show", "go to", "take me to", "browse")          # no "شغل": that means play
 CLOSE = V("اقفل", "قفل", "تقفل", "سكر", "تسكر", "اغلق", "تغلق", "وقف", "اخرج من", "اطفي", "طفي", "تطفي", "انهي",
           "اغلاق", "انهاء", "اقفال",          # noun forms: "اغلاق المتصفح" used to OPEN the browser
           "سيب", "اطلع من", "close", "quit", "exit", "kill", "stop", "terminate")
@@ -252,6 +252,11 @@ def r_create_file(t):
 
 def r_open_folder(t):
     if not has(OPEN_NAV, t):
+        # a folder name said ALONE ("downloads", "the documents", "المستندات") opens it, like a bare app name does.
+        # Exact match only: "play music" must stay play_media, not "open the music folder".
+        for key, names in FOLDERS.items():
+            if key != "home" and any(re.fullmatch(r"(?:the |my |ال)?" + re.escape(N(a)), t) for a in names):
+                return ("open_folder", {"folder": key})
         return None
     key = _find_alias(FOLDERS, t)
     if key:
@@ -287,18 +292,83 @@ _POINTING = (r"(?:ده|دا|دي|ديه|هذا|هذه|الحالي|الحالي�
 
 
 def r_close_app(t):
-    if has(CLOSE, t):
-        app = _find_alias(APPS, t)
-        if app:
-            return ("close_app", {"app": app})
-        if has(CURRENT_NOUN, t) or re.fullmatch(_CLOSE_VERB + r"(?:\s+" + _POINTING + r")?", t.strip()):
-            return ("close_app", {"app": "current"})
+    if not has(CLOSE, t):
+        return None
+    # Explicit close-app patterns: "اقفل المتصفح", "close browser", "قفل الفايرفوكس", etc.
+    # Match close verb + app name (with optional "ال" prefix)
+    explicit_close = re.search(
+        _CLOSE_VERB + r"\s+(?:ال)?\s*(" + "|".join(sorted(_flatten_app_aliases(), key=len, reverse=True)) + r")\b",
+        t
+    )
+    if explicit_close:
+        # Find which app was matched
+        matched = explicit_close.group(1)
+        for key, aliases in APPS.items():
+            if any(re.fullmatch(_alias_re(a), matched) for a in aliases):
+                return ("close_app", {"app": key})
+    # Generic app alias anywhere after close verb
+    app = _find_alias(APPS, t)
+    if app:
+        return ("close_app", {"app": app})
+    # "close this/that/current window" etc.
+    if has(CURRENT_NOUN, t) or re.fullmatch(_CLOSE_VERB + r"(?:\s+" + _POINTING + r")?", t.strip()):
+        return ("close_app", {"app": "current"})
+
+
+def _flatten_app_aliases():
+    """All app aliases as a flat list for regex."""
+    out = []
+    for aliases in APPS.values():
+        out.extend(aliases)
+    return out
 
 
 def r_send_message(t):
-    if has(SEND_MSG, t):
-        if has(r"\b(?:رساله|رسائل|مسج|message|msg)\b", t):
-            return ("send_message", {})
+    if not (has(SEND_MSG, t) and has(r"\b(?:رساله|رسائل|مسج|message|msg)\b", t)):
+        return None
+
+    params = {}
+    # English extraction: "send message to <recipient> saying <body text>"
+    m_en = re.search(r"\b(?:to)\s+([a-z0-9_-]+)(?:\s+(?:saying|with text|that)\s+(.+))?$", t, re.IGNORECASE)
+    if m_en:
+        recipient = m_en.group(1).strip()
+        body = (m_en.group(2) or "").strip()
+        if recipient:
+            params["recipient"] = recipient
+        if body:
+            params["message"] = body
+    else:
+        m_en_body_only = re.search(r"\b(?:saying|with text)\s+(.+)$", t, re.IGNORECASE)
+        if m_en_body_only:
+            params["message"] = m_en_body_only.group(1).strip()
+
+    # Arabic extraction: "ابعت رساله ل/الي <recipient> بتقول/نصها <body text>"
+    if not params:
+        m_ar = re.search(r"\b(?:ل|الي|لي)\s+([^\s]+)(?:\s+(?:بتقول|نصها|فيها|محتواها|ان|انو|انه)\s+(.+))?$", t)
+        if m_ar:
+            recipient = m_ar.group(1).strip()
+            body = (m_ar.group(2) or "").strip()
+            if recipient and recipient not in ("بتقول", "نصها", "فيها", "محتواها"):
+                params["recipient"] = recipient
+            if body:
+                params["message"] = body
+        else:
+            # Prefixed lam e.g. "لاحمد"
+            m_ar_prefix = re.search(r"\bل([^\s]{3,})(?:\s+(?:بتقول|نصها|فيها|محتواها|ان|انو|انه)\s+(.+))?$", t)
+            if m_ar_prefix:
+                cand = m_ar_prefix.group(1).strip()
+                if cand not in ("ازم", "كن", "كل", "حد", "احد"):
+                    params["recipient"] = cand
+                    body = (m_ar_prefix.group(2) or "").strip()
+                    if body:
+                        params["message"] = body
+
+        if "message" not in params:
+            m_ar_body = re.search(r"\b(?:بتقول|نصها|فيها|محتواها)\s+(.+)$", t)
+            if m_ar_body:
+                params["message"] = m_ar_body.group(1).strip()
+
+    return ("send_message", params)
 
 
 _BARE_FILLER = {"the", "a", "an", "ya", "يا"}
@@ -352,6 +422,14 @@ def _prepare(raw):
     t = re.sub(r"\b(?:او\s*بنكا|او\s*بن|اوبن)\b", "open", t)
     t = re.sub(r"\b(?:لكو\s*ليتر|كالكو\s*ليتر|كلكوليتر|كالكيوليتر)\b", "calculator", t)
     t = re.sub(r"\b(?:براوزر|البراوزر)\b", "browser", t)
+
+    # NOTE: We previously had a _repair_whisper_close_open_mishearing() function here
+    # that tried to convert "افتح المتصفح" -> "اقفل المتصفح" assuming Whisper mishears
+    # "اقفل" as "افتح". However, test data shows "افتح المتصفح" (clean spelling) is a
+    # LEGITIMATE open command (user said "open browser" and Whisper got it right).
+    # The fuzzy pass already handles typos like "المبصف" -> "المتصفح".
+    # Removing the mishearing repair to avoid false positives on legitimate open commands.
+
     t = re.sub(NOISE, " ", t)
     return re.sub(r"\s+", " ", t).strip()
 
@@ -393,6 +471,9 @@ def parse(text, lang=None):
     hit = _fuzzy_hit(t)
     if hit:
         return _out(hit[0], hit[1], lang, raw)
+    hit = _first_clause_hit(raw)
+    if hit:
+        return _out(hit[0], hit[1], lang, raw)
     if os.getenv("SOUNDOS_LLM") == "1":                          # OPTIONAL, see llm_fallback.py
         from .llm_fallback import ask_llm
         hit = ask_llm(raw)
@@ -402,6 +483,19 @@ def parse(text, lang=None):
 
 
 _fuzzy_warned = False
+_CLAUSE_SPLIT = re.compile(r"[\u060c,.\u061f?!;\u061b]+")
+
+
+def _first_clause_hit(raw):
+    """Whisper often says the real command and then keeps going with junk ("اقفل، ابح عاماج." / "افتح المتصفح، افضح،").
+    When the whole sentence is unknown, the FIRST clause alone is tried. Never for a dangerous intent."""
+    clauses = [c.strip() for c in _CLAUSE_SPLIT.split(raw) if c.strip()]
+    if len(clauses) < 2:
+        return None
+    first = parse(clauses[0])
+    if first["intent"] == "unknown" or first["intent"] in DANGEROUS:
+        return None
+    return first["intent"], first["params"]
 
 
 def _fuzzy_hit(t):
@@ -410,7 +504,7 @@ def _fuzzy_hit(t):
     if os.getenv("SOUNDOS_FUZZY", "1") == "0":
         return None
     try:
-        from .fuzzy import variants
+        from .fuzzy import variants, repair_open_verb
         for alt in variants(t):
             for rule in RULES:
                 hit = rule(alt)
@@ -418,6 +512,17 @@ def _fuzzy_hit(t):
                     if hit[0] not in DANGEROUS:
                         return hit
                     break                                        # dangerous -> try the next variant
+        # "hoping down loads" / "oben documents": the English verb "open" came out as gibberish. Only OPENING
+        # something may be guessed this way (never close / shutdown / send ...).
+        fixed = repair_open_verb(t)
+        if fixed:
+            for alt in [fixed] + variants(fixed):
+                for rule in RULES:
+                    hit = rule(alt)
+                    if hit:
+                        if hit[0] in ("open_app", "open_folder"):
+                            return hit
+                        break
     except Exception as exc:                                     # parser must never raise ...
         global _fuzzy_warned
         if not _fuzzy_warned:                                    # ... but a broken fuzzy.py must not be silent

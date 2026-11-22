@@ -23,6 +23,7 @@ import re
 import select
 import sys
 import tempfile
+import threading
 import time
 from typing import Optional
 
@@ -197,14 +198,25 @@ def _is_wake_word(text: str) -> bool:
 
 
 _pending_command = None
+_pending_lock = threading.Lock()
 
 
 def get_pending_command() -> Optional[str]:
-    """Retrieve and clear any command pre-captured during wake detection."""
+    """Retrieve and clear any command pre-captured during wake detection in a thread-safe way."""
     global _pending_command
-    cmd = _pending_command
-    _pending_command = None
-    return cmd
+    with _pending_lock:
+        cmd = _pending_command
+        _pending_command = None
+        return cmd
+
+
+def _extract_stt_text(res) -> str:
+    """Safely extract transcript text whether STT returns dict, tuple, or string."""
+    if isinstance(res, dict):
+        return str(res.get("text", "") or "")
+    if isinstance(res, (tuple, list)) and len(res) > 0:
+        return str(res[0] or "")
+    return str(res or "")
 
 
 def _strip_wake_word(text: str) -> str:
@@ -219,6 +231,56 @@ def _strip_wake_word(text: str) -> str:
     for p in patterns:
         norm = re.sub(p, "", norm, flags=re.IGNORECASE).strip()
     return norm
+
+
+# Commands that must NEVER start from ambient speech (TV, a conversation, a hallucination): the user has to
+# say "Hey Dave" first. Real log: 'Send the message.' was executed as a "direct command" with no wake word.
+DIRECT_BLOCKED = {"shutdown", "delete_file", "send_message", "close_app"}
+# close_app is only blocked when it would close "the current window" ("اقفل" alone is a very common Arabic word
+# in conversation). Closing a NAMED app ("اقفل المتصفح") works without the wake word.
+# SOUNDOS_DIRECT_ALLOW=close_app (comma list) lets you allow more yourself.
+
+
+def _classify(text: str, full_decode=None):
+    """Decide what a wake-listening clip is. Returns (kind, payload):
+         ("wake", command_or_None)   "Hey Dave" (+ an optional command said in the same breath)
+         ("direct", text)            a safe command said without the wake word
+         ("needs_wake", (intent, text))  a risky command said without the wake word -> ignored
+         ("heard", text)             nothing usable
+
+    The first decode is the fast English-prompted wake decode. An Arabic command comes out of it as Latin
+    gibberish ('Hoping down loads' for 'افتح التحميلات'), so if it is not a wake word we decode the same audio
+    again with the full, language-aware decoder (`full_decode`) before giving up. SOUNDOS_NO_DIRECT=1 turns the
+    no-wake-word mode off completely."""
+    from intent_parser import parse
+    if _is_wake_word(text):
+        cmd = _strip_wake_word(text)
+        return ("wake", cmd if cmd and parse(cmd)["intent"] != "unknown" else None)
+    def verdict(cand):
+        res = parse(cand)
+        intent = res["intent"]
+        if intent == "unknown":
+            return None
+        allowed = {x.strip() for x in os.environ.get("SOUNDOS_DIRECT_ALLOW", "").split(",") if x.strip()}
+        risky = intent in DIRECT_BLOCKED - allowed
+        if intent == "close_app" and res["params"].get("app") != "current":
+            risky = False
+        if risky or os.environ.get("SOUNDOS_NO_DIRECT") == "1":
+            return ("needs_wake", (intent, cand))
+        return ("direct", cand)
+
+    first = verdict(text)
+    if first:
+        return first
+    if full_decode is None:
+        return ("heard", text)
+    try:                                           # only now: the slower second decode
+        second = full_decode()
+    except Exception:
+        second = ""
+    if second and second != text:
+        return verdict(second) or ("heard", second)
+    return ("heard", text)
 
 
 def _wait_phrase_or_enter() -> bool:
@@ -293,7 +355,11 @@ def _wait_phrase_or_enter() -> bool:
                 silent_run = 0
 
             # Utterance finished on trailing silence (~210 ms) or max duration (~2.2 s)
-            max_frames = int(2.2 * 1000 / BLOCK_MS)
+            try:
+                wake_max_sec = float(os.environ.get("SOUNDOS_WAKE_MAX_SECONDS", "2.2"))
+            except Exception:
+                wake_max_sec = 2.2
+            max_frames = int(wake_max_sec * 1000 / BLOCK_MS)
             if silent_run >= 7 or len(speech_frames) >= max_frames:
                 # Discard ultra-short click/noise spikes (< 240 ms = 8 blocks)
                 if len(speech_frames) >= 8:
@@ -301,27 +367,31 @@ def _wait_phrase_or_enter() -> bool:
                     audio_arr = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
                     try:
                         res = transcribe_wake(audio_arr) if transcribe_wake else transcribe(audio_arr)
-                        text = res.get("text", "") if isinstance(res, dict) else ""
+                        text = _extract_stt_text(res)
+                        try:
+                            from .debug_clips import save_clip
+                            save_clip(audio_arr, text, "wake")      # only if SOUNDOS_SAVE_AUDIO is set
+                        except Exception:
+                            pass
                         if text:
-                            from intent_parser import parse
-
-                            # Check 1: Wake word detected (with or without attached command)
-                            if _is_wake_word(text):
-                                cmd_part = _strip_wake_word(text)
-                                if cmd_part and parse(cmd_part)["intent"] != "unknown":
-                                    _log(f"Wake word + Command captured: '{text}' -> '{cmd_part}' 🚀")
-                                    _pending_command = cmd_part
+                            kind, payload = _classify(text, lambda: _extract_stt_text(transcribe(audio_arr)))
+                            if kind == "wake":
+                                if payload:
+                                    _log(f"Wake word + Command captured: '{text}' -> '{payload}' \U0001F680")
+                                    with _pending_lock:
+                                        _pending_command = payload
                                 else:
-                                    _log(f"Wake word matched: '{text}' ✅")
+                                    _log(f"Wake word matched: '{text}' \u2705")
                                 return True
-
-                            # Check 2: Direct Command without wake word
-                            if parse(text)["intent"] != "unknown":
-                                _log(f"Direct command captured: '{text}' 🚀")
-                                _pending_command = text
+                            if kind == "direct":
+                                _log(f"Direct command captured: '{payload}' \U0001F680")
+                                with _pending_lock:
+                                    _pending_command = payload
                                 return True
-
-                            _log(f"Heard: '{text}' (waiting for 'Hey Dave' or command)...")
+                            if kind == "needs_wake":
+                                _log(f"Heard '{payload[1]}' ({payload[0]}) - say 'Hey Dave' first for this one.")
+                            else:
+                                _log(f"Heard: '{payload}' (waiting for 'Hey Dave' or command)...")
                     except Exception as exc:
                         _log(f"STT check error: {exc}")
 

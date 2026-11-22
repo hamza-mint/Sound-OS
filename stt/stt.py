@@ -30,7 +30,7 @@ PROMPTS = {
 }
 
 SILENCE_RMS = 0.003    # gate for (almost) digital silence; VAD handles real noise
-_FOREIGN_SCRIPT = re.compile("[\u0400-\u04FF\u0900-\u097F\u0E00-\u0E7F\u3040-\u30FF\u3400-\u9FFF\uAC00-\uD7AF]")
+_FOREIGN_SCRIPT = re.compile("[\u0370-\u03FF\u0400-\u04FF\u0530-\u058F\u0590-\u05FF\u0900-\u0DFF\u0E00-\u0EFF\u10A0-\u10FF\u3040-\u30FF\u3400-\u9FFF\uAC00-\uD7AF]")
 MIN_SECONDS = 0.3      # shorter than this -> ignore
 MAX_WORDS_PER_SECOND = 2.5   # generous for isolated spoken commands; see trim_to_speech
 
@@ -92,7 +92,7 @@ class SpeechToText:
 
     @staticmethod
     def has_foreign_script(text):
-        """True if the text contains Chinese/Japanese/Korean/Cyrillic/Thai/Hindi letters. Whisper writes
+        """True if the text contains Greek/Cyrillic/Hebrew/Indic/Thai/Chinese/Japanese/Korean letters. Whisper writes
         those when it hallucinates on noise (real log: '還不算是'); a command is only Arabic or Latin."""
         return bool(_FOREIGN_SCRIPT.search(text))
 

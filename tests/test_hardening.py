@@ -88,3 +88,46 @@ def test_last_candidates_is_filled_for_run_live():
     text, lang = stt.transcribe(audio)
     assert text == "افتح المتصفح" and lang == "ar"
     assert stt.last_candidates == [{"lang": "ar", "text": "افتح المتصفح", "score": 0.9}]
+
+
+# ------------------------------------------------- folders open in a FILE MANAGER
+class _Mime:
+    def __init__(self, handler):
+        self.stdout = handler
+
+
+def _fm_env(monkeypatch, handler, installed, desktop=""):
+    monkeypatch.delenv("SOUNDOS_FILE_MANAGER", raising=False)
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", desktop)
+    monkeypatch.setattr(actions.subprocess, "run", lambda *a, **k: _Mime(handler))
+    monkeypatch.setattr(actions.shutil, "which", lambda n: f"/usr/bin/{n}" if n in installed else None)
+
+
+def test_folder_is_not_opened_by_an_editor_that_hijacked_inode_directory(monkeypatch):
+    """Real bug: xdg-mime said antigravity.desktop (an editor) handles folders, so 'open downloads' opened it."""
+    _fm_env(monkeypatch, "antigravity.desktop\n", {"xdg-open", "dolphin", "thunar"}, desktop="KDE")
+    assert actions._file_manager_cmd("/x") == ["dolphin", "/x"]
+    _fm_env(monkeypatch, "antigravity.desktop\n", {"xdg-open", "dolphin", "thunar"}, desktop="XFCE")
+    assert actions._file_manager_cmd("/x") == ["thunar", "/x"]
+
+
+def test_xdg_open_is_still_used_when_the_default_handler_is_a_file_manager(monkeypatch):
+    _fm_env(monkeypatch, "org.kde.dolphin.desktop\n", {"xdg-open", "dolphin"})
+    assert actions._file_manager_cmd("/x") == ["xdg-open", "/x"]
+    _fm_env(monkeypatch, "thunar.desktop\n", {"xdg-open", "thunar"})
+    assert actions._file_manager_cmd("/x") == ["xdg-open", "/x"]
+
+
+def test_file_manager_can_be_forced_and_has_a_last_resort(monkeypatch):
+    _fm_env(monkeypatch, "code.desktop\n", {"xdg-open", "dolphin", "pcmanfm"})
+    monkeypatch.setenv("SOUNDOS_FILE_MANAGER", "pcmanfm")
+    assert actions._file_manager_cmd("/x") == ["pcmanfm", "/x"]
+    _fm_env(monkeypatch, "code.desktop\n", {"xdg-open"})
+    assert actions._file_manager_cmd("/x") == ["xdg-open", "/x"]       # nothing else installed
+
+
+def test_open_files_app_uses_the_file_manager_helper(monkeypatch):
+    seen = []
+    monkeypatch.setattr(actions, "open_directory", lambda p: seen.append(p) or (True, "ok"))
+    out = execute({"intent": "open_app", "params": {"app": "files"}, "lang": "en"})
+    assert out["success"] is True and seen == ["~"]

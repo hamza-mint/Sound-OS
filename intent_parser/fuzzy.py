@@ -48,6 +48,19 @@ _EN_STOPWORDS = frozenset({
 # Letters Whisper confuses by sound. Used ONLY to compare two words, never to rewrite text.
 _PHON = str.maketrans({"ص": "س", "ث": "س", "ذ": "ز", "ظ": "ز", "ض": "د", "ط": "ت", "ق": "ك"})
 
+# Arabic close/open verbs that Whisper often confuses (acoustic similarity)
+# Adding explicit mapping so "افتح" -> "اقفل" when context demands close
+_CLOSE_OPEN_MAP = {
+    "افتح": "اقفل", "افتحي": "اقفلي", "تفتح": "تقفل",
+    "افتحلي": "اقفلي", "افتحها": "اقفلها",
+    "open": "close", "opening": "closing", "openit": "closeit",
+}
+
+
+def _core(tok):
+    """Drop the Arabic definite article: المتصفح -> متصفح."""
+    return tok[2:] if tok.startswith("ال") and len(tok) > 4 else tok
+
 
 def _core(tok):
     """Drop the Arabic definite article: المتصفح -> متصفح."""
@@ -90,6 +103,11 @@ def _tables():
     return frozenset(words), aliases
 
 
+def clear_fuzzy_cache() -> None:
+    """Invalidate cached vocabulary tables so dynamic updates take effect immediately."""
+    _tables.cache_clear()
+
+
 def _known(tok, words):
     return tok in words or _core(tok) in words
 
@@ -102,6 +120,11 @@ def repair_token(tok, words=None):
     # Never "repair" common English words into app/command names (e.g. what -> whats -> whatsapp)
     if tok.lower() in _EN_STOPWORDS:
         return tok
+    # Explicit close/open verb mapping (Whisper often confuses them acoustically)
+    if tok in _CLOSE_OPEN_MAP:
+        mapped = _CLOSE_OPEN_MAP[tok]
+        if mapped in words or _core(mapped) in words:
+            return mapped
     core = _core(tok)
     best, best_r = None, TOKEN_CUTOFF
     near = [w for w in words if abs(len(w) - len(core)) <= 2]
@@ -145,6 +168,10 @@ def repair_slot(toks):
     for i in range(len(toks)):
         for n in (1, 2):                          # a single word, or two words that were split by STT
             span = toks[i:i + n]
+            if len(span) == 2 and all(t.isalpha() for t in span) and _core("".join(span)) in aliases:
+                # "down loads" -> "downloads": an exact match once glued, even if "down" is also a command word
+                out.append(" ".join(toks[:i] + ["".join(span)] + toks[i + n:]))
+                continue
             if len(span) < n or any(len(t) < 3 or t in STOP or _known(t, words) or not t.isalpha() for t in span):
                 continue
             joined = _core("".join(span)) if n == 2 else _core(span[0])
@@ -165,3 +192,22 @@ def variants(t):
             seen.add(alt)
             out.append(alt)
     return out
+
+
+OPEN_VERB_CUTOFF = 0.6      # "hoping" vs "open" scores exactly 0.6; Latin-script only (Arabic is repaired by repair_token)
+
+
+def repair_open_verb(t):
+    """"hoping down loads" -> "open down loads". Whisper tiny/base write the English verb "open" as gibberish
+    ("hoping", "oben", "obing", "obén"). Only when the sentence has no open/close verb at all and something
+    follows the first word. The caller accepts the guess ONLY if it ends up opening an app or a folder."""
+    from . import rules
+    toks = t.split()
+    if len(toks) < 2 or rules.has(rules.OPEN_ANY, t) or rules.has(rules.CLOSE, t):
+        return None
+    first = toks[0]
+    if len(first) < 3 or not first.isascii() or not first.isalpha() or first in STOP:
+        return None
+    if max(_sim(first, v) for v in ("open", "opening")) < OPEN_VERB_CUTOFF:
+        return None
+    return " ".join(["open"] + toks[1:])

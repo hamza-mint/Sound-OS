@@ -295,3 +295,227 @@ def test_send_message_dispatch():
     res = execute({"intent": "send_message", "params": {"recipient": "Ahmed", "message": "Salam"}, "lang": "en"})
     assert res["success"] is True
     assert "Ahmed" in res["message"]
+
+
+# ---------------------------------------------------------------------------
+# 12. Phase 4: New Hardening Tests (Timeout, Duplicate File, Type Validation)
+# ---------------------------------------------------------------------------
+
+def test_timeout_enforcement_mock_slow_handler(monkeypatch):
+    """Mock a slow handler and verify timeout returns in <1s with user-facing error."""
+    import threading
+    import time
+
+    def slow_handler(*args, **kwargs):
+        time.sleep(2)  # Slower than 1s limit
+        return True, "Done"
+
+    # Patch the handler in the DISPATCH_TABLE that execute() actually uses.
+    # executor.execute uses executor.DISPATCH_TABLE (not executor.__init__.DISPATCH_TABLE)
+    import executor
+    original_handler = executor.DISPATCH_TABLE["open_app"]
+    executor.DISPATCH_TABLE["open_app"] = slow_handler
+
+    try:
+        os.environ["SOUNDOS_DRY_RUN"] = "0"
+        t0 = time.monotonic()
+        res = execute({"intent": "open_app", "params": {"app": "firefox"}, "lang": "en"})
+        elapsed = time.monotonic() - t0
+
+        # Should timeout and return in ~1s (much less than the 2s the handler would take)
+        # Allow small margin for threading overhead
+        assert elapsed < 1.1, f"Timeout enforcement took {elapsed:.3f}s (limit 1.1s)"
+        assert res["success"] is False
+        assert "timed out" in res["message"].lower() or "timeout" in res["message"].lower()
+    finally:
+        executor.DISPATCH_TABLE["open_app"] = original_handler
+
+
+def test_duplicate_file_rejection():
+    """Create a file, try again, verify rejection with 'already exists' message."""
+    os.environ["SOUNDOS_DRY_RUN"] = "0"
+    from executor import actions
+    from pathlib import Path
+
+    SAFE_FILES_DIR = Path.home() / "SoundOS_Files"
+    SAFE_FILES_DIR.mkdir(parents=True, exist_ok=True)
+    test_file = SAFE_FILES_DIR / "duplicate_test.txt"
+
+    # Clean up first
+    if test_file.exists():
+        test_file.unlink()
+
+    try:
+        # First creation should succeed
+        res1 = execute({"intent": "create_file", "params": {"name": "duplicate_test.txt"}, "lang": "en"})
+        assert res1["success"] is True, f"First create failed: {res1['message']}"
+
+        # Second creation should be rejected
+        res2 = execute({"intent": "create_file", "params": {"name": "duplicate_test.txt"}, "lang": "en"})
+        assert res2["success"] is False, f"Second create should fail but got: {res2['message']}"
+        assert "already exists" in res2["message"].lower(), f"Expected 'already exists' in: {res2['message']}"
+
+        # Arabic version too
+        res3 = execute({"intent": "create_file", "params": {"name": "duplicate_test.txt"}, "lang": "ar"})
+        assert res3["success"] is False
+        assert "موجود" in res3["message"] or "already" in res3["message"].lower()
+    finally:
+        if test_file.exists():
+            test_file.unlink()
+
+
+@pytest.mark.parametrize("intent,param_name,invalid_value,description", [
+    # open_app: app must be str (required)
+    ("open_app", "app", 123, "int instead of str"),
+    ("open_app", "app", [], "list instead of str"),
+    ("open_app", "app", {}, "dict instead of str"),
+    ("open_app", "app", None, "None instead of str"),
+    ("open_app", "app", True, "bool instead of str"),
+
+    # close_app: app must be str if present (optional - None is valid "not provided")
+    ("close_app", "app", 123, "int instead of str"),
+    ("close_app", "app", [], "list instead of str"),
+    ("close_app", "app", {}, "dict instead of str"),
+
+    # web_search: query must be str (required)
+    ("web_search", "query", 123, "int instead of str"),
+    ("web_search", "query", [], "list instead of str"),
+    ("web_search", "query", {}, "dict instead of str"),
+    ("web_search", "query", None, "None instead of str"),
+
+    # create_file: name must be str if present (optional - None is valid "not provided")
+    ("create_file", "name", 123, "int instead of str"),
+    ("create_file", "name", [], "list instead of str"),
+    ("create_file", "name", {}, "dict instead of str"),
+
+    # delete_file: name must be str (required)
+    ("delete_file", "name", 123, "int instead of str"),
+    ("delete_file", "name", [], "list instead of str"),
+    ("delete_file", "name", {}, "dict instead of str"),
+    ("delete_file", "name", None, "None instead of str"),
+
+    # open_folder: folder must be str if present (optional - None is valid "not provided")
+    ("open_folder", "folder", 123, "int instead of str"),
+    ("open_folder", "folder", [], "list instead of str"),
+    ("open_folder", "folder", {}, "dict instead of str"),
+
+    # play_media: query must be str if present (optional - None is valid "not provided")
+    ("play_media", "query", 123, "int instead of str"),
+    ("play_media", "query", [], "list instead of str"),
+    ("play_media", "query", {}, "dict instead of str"),
+
+    # send_message: recipient and message must be str if present
+    ("send_message", "recipient", 123, "int instead of str"),
+    ("send_message", "recipient", [], "list instead of str"),
+    ("send_message", "message", 123, "int instead of str"),
+    ("send_message", "message", [], "list instead of str"),
+])
+def test_invalid_param_types(intent, param_name, invalid_value, description):
+    """Test that each intent rejects wrong parameter types with proper error messages."""
+    params = {param_name: invalid_value}
+    res = execute({"intent": intent, "params": params, "lang": "en"})
+    assert res["success"] is False, f"{intent}.{param_name}={description} should fail but got success"
+    assert "invalid" in res["message"].lower() or "must be" in res["message"].lower() or "type" in res["message"].lower(), \
+        f"Expected validation error for {intent}.{param_name}={description}, got: {res['message']}"
+
+
+@pytest.mark.parametrize("intent,lang", [
+    ("open_app", "en"),
+    ("open_app", "ar"),
+    ("close_app", "en"),
+    ("close_app", "ar"),
+    ("web_search", "en"),
+    ("web_search", "ar"),
+    ("create_file", "en"),
+    ("create_file", "ar"),
+    ("delete_file", "en"),
+    ("delete_file", "ar"),
+    ("open_folder", "en"),
+    ("open_folder", "ar"),
+    ("play_media", "en"),
+    ("play_media", "ar"),
+    ("send_message", "en"),
+    ("send_message", "ar"),
+])
+def test_validation_error_messages_localized(intent, lang):
+    """Test that validation errors are properly localized for each intent."""
+    # Use invalid type to trigger validation
+    params = {"app": 123} if intent in ("open_app", "close_app") else \
+             {"query": 123} if intent in ("web_search", "play_media") else \
+             {"name": 123} if intent in ("create_file", "delete_file") else \
+             {"folder": 123} if intent == "open_folder" else \
+             {"recipient": 123}
+
+    res = execute({"intent": intent, "params": params, "lang": lang})
+    assert res["success"] is False
+
+    if lang == "ar":
+        # Should contain Arabic text
+        assert any("؀" <= ch <= "ۿ" for ch in res["message"]), \
+            f"Expected Arabic in error message for {intent}, got: {res['message']}"
+    else:
+        # Should contain English text
+        assert any(ch.isascii() and ch.isalpha() for ch in res["message"]), \
+            f"Expected English in error message for {intent}, got: {res['message']}"
+
+
+def test_validation_edge_cases():
+    """Test edge cases: empty strings, None values, path traversal attempts."""
+    os.environ["SOUNDOS_DRY_RUN"] = "0"
+
+    # Empty string for required string fields
+    res = execute({"intent": "open_app", "params": {"app": ""}, "lang": "en"})
+    assert res["success"] is False
+    assert "empty" in res["message"].lower() or "required" in res["message"].lower() or "invalid" in res["message"].lower()
+
+    res = execute({"intent": "web_search", "params": {"query": "  "}, "lang": "en"})
+    assert res["success"] is False
+
+    res = execute({"intent": "delete_file", "params": {"name": ""}, "lang": "en"})
+    assert res["success"] is False
+
+    # Path traversal in create_file
+    res = execute({"intent": "create_file", "params": {"name": "../../etc/passwd"}, "lang": "en"})
+    assert res["success"] is False
+    assert "traversal" in res["message"].lower() or "not permitted" in res["message"].lower()
+
+    # Path traversal in delete_file
+    res = execute({"intent": "delete_file", "params": {"name": "..\\windows\\system32"}, "lang": "en"})
+    assert res["success"] is False
+    assert "traversal" in res["message"].lower() or "not permitted" in res["message"].lower()
+
+    # Valid Arabic empty/whitespace
+    res = execute({"intent": "open_app", "params": {"app": "   "}, "lang": "ar"})
+    assert res["success"] is False
+
+
+def test_no_params_field_handling():
+    """Test that missing params field is handled gracefully."""
+    res = execute({"intent": "open_app", "lang": "en"})  # No params key at all
+    _assert_contract(res)
+    assert res["success"] is False
+
+    res = execute({"intent": "volume_up", "lang": "en"})  # No params key for param-less intent
+    _assert_contract(res)
+    assert res["success"] is True
+
+
+def test_subcommand_timeout_budget():
+    """Verify that subcommand timeout budget (0.85s) is respected in multi-step operations."""
+    from executor import actions
+    import time
+
+    # The _run_subcommand default timeout should be 0.85s
+    import inspect
+    sig = inspect.signature(actions._run_subcommand)
+    assert sig.parameters["timeout_sec"].default == 0.85, \
+        f"_run_subcommand timeout default should be 0.85s, got {sig.parameters['timeout_sec'].default}"
+
+    # search_web and play_media_content should accept budget_sec parameter
+    sig_search = inspect.signature(actions.search_web)
+    assert "budget_sec" in sig_search.parameters
+    assert sig_search.parameters["budget_sec"].default == 0.85
+
+    sig_play = inspect.signature(actions.play_media_content)
+    assert "budget_sec" in sig_play.parameters
+    assert sig_play.parameters["budget_sec"].default == 0.85

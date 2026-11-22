@@ -132,6 +132,11 @@ def listen_utterance():
     if not wav_path:
         return {"text": "", "lang": "en", "confidence": 0.0}
     res = transcribe(wav_path)
+    try:
+        from audio.debug_clips import save_clip
+        save_clip(wav_path, res.get("text", ""), "cmd")        # only if SOUNDOS_SAVE_AUDIO is set
+    except Exception:
+        pass
     cleaned = strip_own_speech(res.get("text", ""))
     if cleaned != res.get("text", ""):
         print(f"[Sound OS] 🔇 Ignored Dave's own voice: {res.get('text', '')!r} -> {cleaned!r}")
