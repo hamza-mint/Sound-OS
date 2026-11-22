@@ -37,7 +37,16 @@ _WORD = re.compile(r"[^\W_]+", re.UNICODE)
 _AR_TO_EN = [
     (r"\[تجربة\]|\[DRY-RUN\]", ""),
     (r"✅|❌", ""),
+    # Negative / Failure patterns
+    (r"\bتعذر إغلاق التطبيق الحالي.*|\bفشل إغلاق التطبيق الحالي.*", "Could not close active window"),
+    (r"\bتعذر إغلاق\b|\bفشل إغلاق\b", "Could not close"),
+    (r"\bتعذر فتح\b|\bفشل فتح\b", "Could not open"),
+    (r"\bلم يتم العثور على نافذة أو تطبيق مفتوح\b", "no running window found"),
+    # Success patterns
+    (r"\bمفتوح بالفعل\b", "is already open"),
+    (r"\bتم إظهار تطبيق\b|\bتم إظهار\b", "Focused"),
     (r"\bتم فتح تطبيق\b|\bتم فتح\b|\bفتح تطبيق\b", "Opened"),
+    (r"\bتم إغلاق التطبيق الحالي\b|\bإغلاق التطبيق الحالي\b", "Closed current window"),
     (r"\bتم إغلاق النافذة الحالية\b|\bإغلاق النافذة الحالية\b", "Closed current window"),
     (r"\bتم إغلاق تطبيق\b|\bتم إغلاق\b|\bتم قفل\b|\bإغلاق تطبيق\b", "Closed"),
     (r"\bتم رفع الصوت\b|\bرفع الصوت\b", "Volume increased"),
@@ -55,6 +64,18 @@ _AR_TO_EN = [
     (r"\bمفهمتش\b|\bلم أفهم\b", "Sorry, I did not understand that"),
     (r"\bفشل\b", "Failed"),
     (r"\bتم\b", "Done"),
+    # App & entity names
+    (r"\bالمتصفح\b", "browser"),
+    (r"\bالتطبيق الحالي\b|\bالنافذة الحالية\b", "current window"),
+    (r"\bالتطبيق\b|\bالبرنامج\b", "application"),
+    (r"\bالحاسبة\b|\bالاله الحاسبه\b|\bالآلة الحاسبة\b", "calculator"),
+    (r"\bالطرفية\b|\bالترمينال\b", "terminal"),
+    (r"\bالمحرر\b", "editor"),
+    (r"\bالإعدادات\b|\bالاعدادات\b|\bالضبط\b", "settings"),
+    (r"\bالتحميلات\b|\bالتنزيلات\b", "downloads"),
+    (r"\bالمستندات\b", "documents"),
+    (r"\bسطح المكتب\b", "desktop"),
+    (r"\bالموسيقى\b|\bالميوزك\b", "music"),
     (r"\s+و\s+", " and "),
 ]
 
@@ -99,9 +120,14 @@ def speak(text: str, lang: str = "en") -> None:
         # If Arabic response phrase, translate so Piper can speak it out loud
         if voice_lang == "ar" or re.search(r"[\u0600-\u06FF]", target_text):
             english_equiv = _to_english(target_text)
-            if english_equiv and not re.search(r"[\u0600-\u06FF]", english_equiv):
-                target_text = english_equiv
-                voice_lang = "en"
+            if re.search(r"[\u0600-\u06FF]", english_equiv):
+                # Fallback to simple acknowledgment if any Arabic characters remain
+                if "Opened" in english_equiv or "Closed" in english_equiv or "increased" in english_equiv or "decreased" in english_equiv or "muted" in english_equiv:
+                    english_equiv = "Command executed."
+                else:
+                    english_equiv = "Done."
+            target_text = english_equiv
+            voice_lang = "en"
 
         if dave_voice.speak(target_text, voice_lang):
             _RECENT.append((_norm_words(target_text), time.monotonic()))     # what is REALLY played
@@ -118,7 +144,7 @@ def _norm_words(text):
     return _WORD.findall(t)
 
 
-def wait_until_silent(timeout: float = 8.0, tail: float = 0.4) -> None:
+def wait_until_silent(timeout: float = 8.0, tail: float = 0.12) -> None:
     """Block until Dave has finished speaking (+ `tail` s for the room echo to die), so the
     microphone never records his own voice. Never raises, never waits more than `timeout`."""
     try:

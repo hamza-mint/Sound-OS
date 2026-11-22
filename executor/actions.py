@@ -229,12 +229,49 @@ _last_launched_process: Optional[str] = None
 _process_lock = threading.Lock()
 
 
+def _try_focus_window(proc_name: str) -> bool:
+    """Try to bring a running window to focus using wmctrl or KDE KWin DBus."""
+    if not proc_name:
+        return False
+
+    # 1. wmctrl (X11)
+    if shutil.which("wmctrl"):
+        ok, _ = _run_subcommand(["wmctrl", "-a", proc_name])
+        if ok:
+            return True
+
+    # 2. KDE KWin DBus (Wayland & X11)
+    if shutil.which("gdbus") and os.environ.get("XDG_CURRENT_DESKTOP") == "KDE":
+        try:
+            res = subprocess.run(
+                ["gdbus", "call", "--session", "--dest", "org.kde.KWin",
+                 "--object-path", "/WindowsRunner", "--method", "org.kde.krunner1.Match", proc_name],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=0.3
+            )
+            if res.returncode == 0 and res.stdout:
+                m = re.search(r"'(0_\{[^}]+\})'", res.stdout)
+                if m:
+                    match_id = m.group(1)
+                    run_res = subprocess.run(
+                        ["gdbus", "call", "--session", "--dest", "org.kde.KWin",
+                         "--object-path", "/WindowsRunner", "--method", "org.kde.krunner1.Run", match_id, ""],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.3
+                    )
+                    if run_res.returncode == 0:
+                        return True
+        except Exception:
+            pass
+
+    return False
+
+
 def launch_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
     """
     Launch application as a detached background process.
     Senior Enhancement:
-    1. If app is already running and wmctrl is installed, bring window to front (Focus).
-    2. Tries primary cmd first, then fallback_cmds / fallbacks for cross-distro compatibility.
+    1. If app is already running, bring window to front (Focus) via wmctrl or KDE KWin DBus.
+    2. Avoids spawning multiple duplicate windows when app is already running.
+    3. Tries primary cmd first, then fallback_cmds / fallbacks for cross-distro compatibility.
     """
     global _last_launched_process
     proc_name = app_config.get("process", "")
@@ -242,11 +279,19 @@ def launch_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
         with _process_lock:
             _last_launched_process = proc_name
 
-    # Check if app is already running and focus its window
-    if proc_name and shutil.which("wmctrl"):
-        ok, _ = _run_subcommand(["wmctrl", "-a", proc_name])
-        if ok:
+        # Check if app is already running and focus its window
+        if _try_focus_window(proc_name):
             return True, f"Focused running {proc_name}."
+
+        # If process is already running in background, check fallbacks to focus or report already running
+        if shutil.which("pgrep"):
+            ok, _ = _run_subcommand(["pgrep", "-x", proc_name])
+            if ok:
+                for alias in app_config.get("process_fallbacks", []):
+                    if _try_focus_window(alias):
+                        return True, f"Focused running {proc_name}."
+                # App process exists: avoid spawning multiple redundant instances
+                return True, f"{proc_name} is already open and running."
 
     # Try primary cmd
     cmd = app_config.get("cmd", [])
@@ -279,13 +324,21 @@ def terminate_app(app_config: Dict[str, Any]) -> Tuple[bool, str]:
     # Generic close: user said "close app" / "اقفل تطبيق" / "اقفل النافذة"
     if proc_name == "current":
         # 1. Close the active window. wmctrl asks the window manager to close it (graceful, the app can
-        #    still show "save changes?"), so it goes first; xdotool is only the fallback.
+        #    still show "save changes?"), so it goes first; xdotool and KDE DBus follow.
         if shutil.which("wmctrl"):
             ok, _ = _run_subcommand(["wmctrl", "-c", ":ACTIVE:"])
             if ok:
                 return True, "Closed active window."
         if shutil.which("xdotool"):
             ok, _ = _run_subcommand(["xdotool", "getactivewindow", "windowclose"])
+            if ok:
+                return True, "Closed active window."
+        if shutil.which("gdbus") and os.environ.get("XDG_CURRENT_DESKTOP") == "KDE":
+            ok, _ = _run_subcommand([
+                "gdbus", "call", "--session", "--dest", "org.kde.kglobalaccel",
+                "--object-path", "/component/kwin",
+                "--method", "org.kde.kglobalaccel.Component.invokeShortcut", "Window Close"
+            ])
             if ok:
                 return True, "Closed active window."
 

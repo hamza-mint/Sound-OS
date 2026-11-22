@@ -304,13 +304,14 @@ def _wait_phrase_or_enter() -> bool:
     if not mic.open():
         return _wait_energy_or_enter()
 
-    preroll = deque(maxlen=8)       # ~240 ms preroll buffer
+    preroll = deque(maxlen=14)      # ~420 ms preroll buffer (never clip initial consonants)
     speech_frames = []
     started = False
     silent_run = 0
     noise_samples = []
     threshold = 300.0
     calibrated = False
+    blocks_read = 0
 
     try:
         while True:
@@ -321,6 +322,11 @@ def _wait_phrase_or_enter() -> bool:
             block = mic.read()
             if block is None:
                 return False
+
+            blocks_read += 1
+            if blocks_read <= 2:
+                # Discard the very first 2 blocks (60 ms) to let hardware settle without pops
+                continue
 
             level = rms(block)
 
@@ -333,9 +339,9 @@ def _wait_phrase_or_enter() -> bool:
                     calibrated = True
                 continue
 
-            # Continuously adapt background noise floor while idle
+            # Continuously adapt background noise floor while idle, bounded to safe range [200.0, 800.0]
             if not started and level < threshold * 1.5:
-                threshold = 0.98 * threshold + 0.02 * max(level * 1.6, 200.0)
+                threshold = min(800.0, max(200.0, 0.98 * threshold + 0.02 * max(level * 1.5, 200.0)))
 
             loud = level > threshold
 
@@ -354,13 +360,14 @@ def _wait_phrase_or_enter() -> bool:
             else:
                 silent_run = 0
 
-            # Utterance finished on trailing silence (~210 ms) or max duration (~2.2 s)
+            # Utterance finished on trailing silence (~360 ms, configurable) or max duration (~2.2 s)
             try:
                 wake_max_sec = float(os.environ.get("SOUNDOS_WAKE_MAX_SECONDS", "2.2"))
             except Exception:
                 wake_max_sec = 2.2
             max_frames = int(wake_max_sec * 1000 / BLOCK_MS)
-            if silent_run >= 7 or len(speech_frames) >= max_frames:
+            wake_silence_blocks = int(os.environ.get("SOUNDOS_WAKE_SILENCE_BLOCKS", "12"))
+            if silent_run >= wake_silence_blocks or len(speech_frames) >= max_frames:
                 # Discard ultra-short click/noise spikes (< 240 ms = 8 blocks)
                 if len(speech_frames) >= 8:
                     pcm = b"".join(speech_frames)

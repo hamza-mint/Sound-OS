@@ -168,7 +168,12 @@ def _handle_open_app(params: dict, lang: str, dry_run: bool) -> Tuple[bool, str]
     else:
         ok, err = actions.launch_app(cfg)
     if ok:
-        msg = f"Opened {canonical}." if lang == "en" else f"تم فتح {canonical}."
+        if "Focused" in err:
+            msg = f"Focused {canonical}." if lang == "en" else f"تم إظهار {canonical}."
+        elif "already" in err:
+            msg = f"{canonical} is already open." if lang == "en" else f"{canonical} مفتوح بالفعل."
+        else:
+            msg = f"Opened {canonical}." if lang == "en" else f"تم فتح {canonical}."
     else:
         msg = f"Failed to open {canonical}: {err}" if lang == "en" else f"فشل فتح {canonical}: {err}"
     return ok, msg

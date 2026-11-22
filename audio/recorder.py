@@ -84,7 +84,9 @@ def compute_threshold(noise_levels: List[float]) -> float:
         if not noise_levels:
             return floor
         ordered = sorted(noise_levels)
-        noise = ordered[len(ordered) // 4]          # 25th percentile
+        # Drop highest spike if hardware pop occurred on stream startup
+        clean = ordered[:-1] if len(ordered) > 4 else ordered
+        noise = clean[len(clean) // 4]          # 25th percentile
         return min(max(floor, noise * 3.0), 3000.0)
     except Exception:
         return 300.0
