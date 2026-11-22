@@ -13,6 +13,7 @@ Contract:
             text == "" means "no speech understood" -> the caller should ignore it.
 """
 import math
+import os
 import re
 import time
 
@@ -31,6 +32,17 @@ PROMPTS = {
 
 SILENCE_RMS = 0.003    # gate for (almost) digital silence; VAD handles real noise
 _FOREIGN_SCRIPT = re.compile("[\u0370-\u03FF\u0400-\u04FF\u0530-\u058F\u0590-\u05FF\u0900-\u0DFF\u0E00-\u0EFF\u10A0-\u10FF\u3040-\u30FF\u3400-\u9FFF\uAC00-\uD7AF]")
+def _beam_size():
+    """Beam search width for COMMAND decoding. 5 is Whisper's own default; 1 (greedy) is faster but makes more
+    mistakes. Measured here (tiny/base, 40 clips, synthetic voice): total correct 19 -> 25 (tiny) and
+    15 -> 17..23 (base) going from beam 1 to 5, for ~+0.15 s. SOUNDOS_STT_BEAM=1 restores the old speed.
+    The wake-word decode stays at 1 (it runs all the time)."""
+    try:
+        return max(1, min(10, int(os.environ.get("SOUNDOS_STT_BEAM", "5"))))
+    except ValueError:
+        return 5
+
+
 MIN_SECONDS = 0.3      # shorter than this -> ignore
 MAX_WORDS_PER_SECOND = 2.5   # generous for isolated spoken commands; see trim_to_speech
 
@@ -146,7 +158,7 @@ class SpeechToText:
         segments, info = self.model.transcribe(
             audio,
             language=language,
-            beam_size=1,
+            beam_size=_beam_size(),   # 5 by default: see _beam_size()
             initial_prompt=prompt,
             temperature=0.0,                    # no slow retries
             condition_on_previous_text=False,   # less repetition

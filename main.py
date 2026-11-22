@@ -58,6 +58,46 @@ def _execute_single(text, ask_yes_no, lang_hint=None, confidence=1.0, parsed=Non
     return result
 
 
+# ---- "I said CLOSE but it OPENED again" -------------------------------------------------------------
+# Whisper (especially tiny/base) often hears "اقفل المتصفح" as "افتح المتصفح": same letters, similar sound.
+# Opening an app that we opened a moment ago is almost always that mistake (or a retry of it), so instead of
+# opening a 2nd window we ask once. yes -> close it, no -> open it again as asked, silence -> do nothing.
+# SOUNDOS_REPEAT_CHECK=0 turns it off.
+REPEAT_WINDOW_SEC = 60
+_RECENT_OPEN = {}                      # app -> time.monotonic() of the last successful open_app
+
+
+def _remember_result(parsed, ok):
+    intent, app = parsed.get("intent"), (parsed.get("params") or {}).get("app")
+    if not app:
+        return
+    if intent == "open_app" and ok:
+        _RECENT_OPEN[app] = time.monotonic()
+    elif intent == "close_app":
+        _RECENT_OPEN.pop(app, None)
+
+
+def _check_repeat_open(parsed, ask_yes_no):
+    """Returns (parsed_to_run, skip). May turn an open_app into close_app after the user says yes."""
+    if os.environ.get("SOUNDOS_REPEAT_CHECK", "1") == "0" or parsed.get("intent") != "open_app" or ask_yes_no is None:
+        return parsed, False
+    app = (parsed.get("params") or {}).get("app")
+    last = _RECENT_OPEN.get(app)
+    if not app or last is None or time.monotonic() - last > REPEAT_WINDOW_SEC:
+        return parsed, False
+    print(f"[Sound OS] ❓ {app} was opened {int(time.monotonic() - last)}s ago: did you mean CLOSE it?")
+    speak(f"{app} is already open. Do you want me to close it?", "en")
+    resp = ask_yes_no()
+    answer = parse_yes_no(resp if isinstance(resp, str) else (resp or {}).get("text", ""))
+    if answer is True:
+        return dict(parsed, intent="close_app"), False
+    if answer is False:
+        _RECENT_OPEN[app] = time.monotonic()
+        return parsed, False                                      # really wants a second one
+    print("[Sound OS] ❓ No clear answer: doing nothing.")
+    return parsed, True
+
+
 def _speakable(msg):
     """Text for the voice: the [DRY-RUN] / [تجربة] tag is for the screen, read aloud it was 'D-R-Y R-U-N'."""
     return re.sub(r"\[(?:DRY-RUN|تجربة)\]\s*", "", str(msg or "")).strip()
@@ -94,7 +134,14 @@ def handle(text, ask_yes_no, lang_hint=None, confidence=1.0):
             print(f"   • Params:   {params}")
         print(f"   • Status:   Executing...")
 
+        parsed, skip = _check_repeat_open(parsed, ask_yes_no)
+        if skip:
+            results.append({"success": True, "message": "", "lang": parsed.get("lang", "en")})
+            continue
+        if parsed.get("intent") == "close_app":
+            intent, params = "close_app", parsed.get("params", params)
         res = _execute_single(cmd, ask_yes_no, lang_hint=lang_hint, confidence=confidence, parsed=parsed)
+        _remember_result(parsed, res.get("success", False))
         cmd_time = time.perf_counter() - t_cmd_start
         results.append(res)
         lang = res.get("lang", lang)
