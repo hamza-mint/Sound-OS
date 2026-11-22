@@ -3,10 +3,14 @@ Sound OS - Command Executor Module (Owner: Yassin)
 Interface Contract: CONTRACT.md v1.0
 Entry point: execute(command: dict) -> dict
 Output: {"success": bool, "message": str}
+
+v3 Hardening: Strict param validation, threading-based timeout enforcement.
 """
 import json
 import logging
 import os
+import queue
+import threading
 import time
 from pathlib import Path
 from typing import Dict, Any, Tuple
@@ -61,6 +65,79 @@ def _resolve_folder(folder_name: str) -> str:
         return folders[folder_clean]
     # Default to home subdirectory if custom name
     return f"~/{folder_name}" if folder_name else "~"
+
+
+# ---------------------------------------------------------------------------
+# v3: Strict per-intent parameter validation
+# ---------------------------------------------------------------------------
+def _validate_params(intent: str, params: dict, lang: str) -> Tuple[bool, str]:
+    """
+    Validate params per intent rules. Returns (is_valid, error_message).
+    On success: (True, ""). On failure: (False, localised_error).
+    """
+    if not isinstance(params, dict):
+        return False, ("Invalid parameters: must be an object."
+                       if lang == "en" else "معاملات غير صالحة: يجب أن تكون كائناً.")
+
+    def _require_str(field: str, allow_empty: bool = False) -> Tuple[bool, str]:
+        val = params.get(field)
+        if val is None and allow_empty:
+            return True, ""  # optional field, absent is fine
+        if not isinstance(val, str):
+            return False, (f"Parameter '{field}' must be a text string."
+                           if lang == "en"
+                           else f"المعامل '{field}' يجب أن يكون نصاً.")
+        if not allow_empty and not val.strip():
+            return False, (f"Parameter '{field}' must not be empty."
+                           if lang == "en"
+                           else f"المعامل '{field}' لا يجب أن يكون فارغاً.")
+        return True, ""
+
+    def _no_path_traversal(field: str) -> Tuple[bool, str]:
+        val = params.get(field)
+        if val is None:
+            return True, ""
+        if not isinstance(val, str):
+            return False, (f"Parameter '{field}' must be a text string."
+                           if lang == "en"
+                           else f"المعامل '{field}' يجب أن يكون نصاً.")
+        if "/" in val or "\\" in val or ".." in val or os.path.isabs(val):
+            return False, ("Invalid filename: path traversal is not permitted."
+                           if lang == "en"
+                           else "اسم ملف غير صالح: غير مسموح بالمسارات المتداخلة.")
+        return True, ""
+
+    def _optional_str(field: str) -> Tuple[bool, str]:
+        val = params.get(field)
+        if val is None:
+            return True, ""
+        if not isinstance(val, str):
+            return False, (f"Parameter '{field}' must be a text string."
+                           if lang == "en"
+                           else f"المعامل '{field}' يجب أن يكون نصاً.")
+        return True, ""
+
+    rules = {
+        "open_app":    [lambda: _require_str("app")],
+        "close_app":   [lambda: _optional_str("app")],
+        "web_search":  [lambda: _require_str("query")],
+        "create_file": [lambda: _optional_str("name"),
+                        lambda: _no_path_traversal("name")],
+        "delete_file": [lambda: _require_str("name"),
+                        lambda: _no_path_traversal("name")],
+        "open_folder": [lambda: _optional_str("folder")],
+        "play_media":  [lambda: _optional_str("query")],
+        "send_message": [lambda: _optional_str("recipient"),
+                         lambda: _optional_str("message")],
+    }
+
+    checks = rules.get(intent, [])
+    for check in checks:
+        ok, msg = check()
+        if not ok:
+            return False, msg
+
+    return True, ""
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +328,8 @@ def execute(command: dict) -> dict:
     - Never raises exceptions.
     - Honours SOUNDOS_DRY_RUN=1 environment variable.
     - Returns format: {"success": bool, "message": str} in the requested lang.
-    - Logs a warning if execution exceeds 1 second (CONTRACT.md §7).
+    - v3: Strict param validation BEFORE dispatch.
+    - v3: Hard timeout enforcement via threading (1s max).
     """
     t0 = time.monotonic()
     try:
@@ -271,8 +349,38 @@ def execute(command: dict) -> dict:
             msg = f"Unknown or unsupported intent: '{intent}'" if lang == "en" else f"أمر غير مدعوم أو غير معروف: '{intent}'"
             return {"success": False, "message": msg}
 
-        success, message = handler(params, lang, dry_run)
-        return {"success": bool(success), "message": message}
+        # --- v3: Strict per-intent param validation ---
+        valid, err_msg = _validate_params(intent, params, lang)
+        if not valid:
+            return {"success": False, "message": err_msg}
+
+        # --- v3: Execute handler with hard timeout via threading ---
+        result_queue: queue.Queue = queue.Queue()
+
+        def _worker():
+            try:
+                success, message = handler(params, lang, dry_run)
+                result_queue.put({"success": bool(success), "message": message})
+            except Exception as exc:
+                err = f"Execution error: {exc}" if lang == "en" else f"خطأ في التنفيذ: {exc}"
+                result_queue.put({"success": False, "message": err})
+
+        worker_thread = threading.Thread(target=_worker, daemon=True)
+        worker_thread.start()
+
+        # Wait for remaining budget (never more than 1s total)
+        elapsed_so_far = time.monotonic() - t0
+        budget = max(0.01, _MAX_EXECUTION_SECS - elapsed_so_far)
+        worker_thread.join(timeout=budget)
+
+        if not result_queue.empty():
+            return result_queue.get_nowait()
+
+        # Timeout: handler didn't finish in time
+        timeout_msg = ("Command execution timed out."
+                       if lang == "en"
+                       else "انتهت مهلة تنفيذ الأمر.")
+        return {"success": False, "message": timeout_msg}
 
     except Exception as exc:
         # Guarantee: Never crash or raise an unhandled exception

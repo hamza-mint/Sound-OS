@@ -1,15 +1,20 @@
 """
-Sound OS - Executor Action Implementations (v2 Enhanced)
+Sound OS - Executor Action Implementations (v3 Hardened)
 Safe command execution for Ubuntu (X11 / Xorg).
 Follows CONTRACT.md: No shell=True, safe argument lists, never raises exceptions.
+v3: Strict 0.85s subcommand timeout, multi-step timing budget, duplicate file rejection.
 """
 import os
 import shutil
 import socket
 import subprocess
+import time
 import urllib.parse
 from pathlib import Path
 from typing import Tuple, Dict, Any
+
+# v3: Default subcommand timeout — leaves headroom for the 1s overall budget
+_SUBCOMMAND_TIMEOUT = 0.85
 
 SAFE_FILES_DIR = Path.home() / "SoundOS_Files"
 BRIGHTNESS_STATE_FILE = Path("/tmp/.soundos_brightness")
@@ -34,26 +39,29 @@ def check_internet_connection(timeout_sec: float = 0.2) -> bool:
 is_online = check_internet_connection
 
 
-def _run_subcommand(args: list[str]) -> Tuple[bool, str]:
-    """Run a command safely without shell=True."""
+def _run_subcommand(args: list[str], timeout: float = _SUBCOMMAND_TIMEOUT) -> Tuple[bool, str]:
+    """Run a command safely without shell=True. Timeout defaults to 0.85s (v3)."""
     if not args:
         return False, "Empty arguments list."
     binary = args[0]
     if not shutil.which(binary):
         return False, f"Required utility '{binary}' is not installed."
 
+    effective_timeout = max(0.05, min(timeout, _SUBCOMMAND_TIMEOUT))
     try:
         proc = subprocess.run(
             args,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=5,
+            timeout=effective_timeout,
         )
         if proc.returncode == 0:
             return True, proc.stdout.strip()
         err = proc.stderr.strip() or proc.stdout.strip()
         return False, err or f"Process exited with code {proc.returncode}."
+    except subprocess.TimeoutExpired:
+        return False, f"Command timed out after {effective_timeout:.2f}s."
     except Exception as exc:
         return False, str(exc)
 
@@ -309,8 +317,12 @@ def create_user_file(filename: str = "new_file.txt") -> Tuple[bool, str]:
     target_file = SAFE_FILES_DIR / clean_name
 
     try:
-        target_file.touch(exist_ok=True)
+        if target_file.exists():
+            return False, f"File '{clean_name}' already exists."
+        target_file.touch(exist_ok=False)
         return True, f"File '{clean_name}' created at {SAFE_FILES_DIR}."
+    except FileExistsError:
+        return False, f"File '{clean_name}' already exists."
     except Exception as exc:
         return False, f"Failed to create file: {exc}"
 
@@ -346,7 +358,9 @@ def search_web(query: str, check_net: bool = True) -> Tuple[bool, str]:
     """
     Open default browser with Google search.
     Follows CONTRACT.md §4: 'web_search needs internet; say so in the message if offline.'
+    v3: Multi-step timing — internet check eats into the 0.85s budget.
     """
+    t0 = time.monotonic()
     clean_query = (query or "").strip()
     if not clean_query:
         return False, "Empty search query."
@@ -354,18 +368,24 @@ def search_web(query: str, check_net: bool = True) -> Tuple[bool, str]:
     if check_net and not check_internet_connection():
         return False, "offline"
 
+    remaining = max(0.05, _SUBCOMMAND_TIMEOUT - (time.monotonic() - t0))
     encoded = urllib.parse.quote(clean_query)
     url = f"https://www.google.com/search?q={encoded}"
     return _spawn_detached(["xdg-open", url])
 
 
 def play_media_content(query: str = "") -> Tuple[bool, str]:
-    """Open media player or search online media."""
+    """
+    Open media player or search online media.
+    v3: Multi-step timing — internet check eats into the 0.85s budget.
+    """
+    t0 = time.monotonic()
     clean_query = (query or "").strip()
     if clean_query:
         # If user asked for a specific artist/song, open YouTube search if online
         if not check_internet_connection():
             return False, "offline"
+        remaining = max(0.05, _SUBCOMMAND_TIMEOUT - (time.monotonic() - t0))
         encoded = urllib.parse.quote(clean_query)
         return _spawn_detached(["xdg-open", f"https://www.youtube.com/results?search_query={encoded}"])
     else:

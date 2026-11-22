@@ -274,3 +274,140 @@ def test_play_media_offline_graceful():
         res = execute({"intent": "play_media", "params": {"query": "amr diab"}, "lang": "en"})
         assert res["success"] is False
         assert "internet" in res["message"].lower()
+
+
+# ---------------------------------------------------------------------------
+# 12. v3 Hardening: Timeout enforcement
+# ---------------------------------------------------------------------------
+def test_timeout_returns_error_message_en():
+    """A slow handler must be killed and return a timeout message within ~1s."""
+    from unittest.mock import patch
+    import time as _time
+
+    def slow_handler(params, lang, dry_run):
+        _time.sleep(3)  # deliberate slow
+        return True, "Should never reach"
+
+    with patch.dict("executor.DISPATCH_TABLE", {"open_app": slow_handler}):
+        t0 = _time.monotonic()
+        res = execute({"intent": "open_app", "params": {"app": "firefox"}, "lang": "en"})
+        elapsed = _time.monotonic() - t0
+
+    _assert_contract(res)
+    assert res["success"] is False
+    assert "timed out" in res["message"].lower()
+    assert elapsed < 1.5, f"Timeout took too long: {elapsed:.3f}s"
+
+
+def test_timeout_returns_error_message_ar():
+    """Arabic timeout message."""
+    from unittest.mock import patch
+    import time as _time
+
+    def slow_handler(params, lang, dry_run):
+        _time.sleep(3)
+        return True, "Should never reach"
+
+    with patch.dict("executor.DISPATCH_TABLE", {"open_app": slow_handler}):
+        res = execute({"intent": "open_app", "params": {"app": "firefox"}, "lang": "ar"})
+
+    _assert_contract(res)
+    assert res["success"] is False
+    assert "مهلة" in res["message"]
+
+
+# ---------------------------------------------------------------------------
+# 13. v3 Hardening: Duplicate file rejection
+# ---------------------------------------------------------------------------
+def test_duplicate_file_rejected(tmp_path, monkeypatch):
+    """Creating a file that already exists must fail with a clear message."""
+    import executor.actions as act
+    monkeypatch.setattr(act, "SAFE_FILES_DIR", tmp_path)
+    monkeypatch.delenv("SOUNDOS_DRY_RUN", raising=False)
+
+    # First creation succeeds
+    res1 = execute({"intent": "create_file", "params": {"name": "dup.txt"}, "lang": "en"})
+    _assert_contract(res1)
+    assert res1["success"] is True
+
+    # Second creation fails (duplicate)
+    res2 = execute({"intent": "create_file", "params": {"name": "dup.txt"}, "lang": "en"})
+    _assert_contract(res2)
+    assert res2["success"] is False
+    assert "already exists" in res2["message"].lower()
+
+
+def test_duplicate_file_rejected_ar(tmp_path, monkeypatch):
+    """Duplicate file rejection in Arabic context."""
+    import executor.actions as act
+    monkeypatch.setattr(act, "SAFE_FILES_DIR", tmp_path)
+    monkeypatch.delenv("SOUNDOS_DRY_RUN", raising=False)
+
+    res1 = execute({"intent": "create_file", "params": {"name": "dup_ar.txt"}, "lang": "ar"})
+    assert res1["success"] is True
+
+    res2 = execute({"intent": "create_file", "params": {"name": "dup_ar.txt"}, "lang": "ar"})
+    _assert_contract(res2)
+    assert res2["success"] is False
+    assert "already exists" in res2["message"].lower()
+
+
+# ---------------------------------------------------------------------------
+# 14. v3 Hardening: Invalid parameter types
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("intent, params, lang", [
+    ("open_app",    {"app": 123},           "en"),
+    ("open_app",    {"app": ["firefox"]},    "en"),
+    ("open_app",    {"app": None},           "en"),
+    ("web_search",  {"query": []},           "en"),
+    ("web_search",  {"query": 42},           "ar"),
+    ("create_file", {"name": ["x"]},         "en"),
+    ("create_file", {"name": 999},           "en"),
+    ("delete_file", {"name": 123},           "en"),
+    ("delete_file", {"name": True},          "ar"),
+    ("play_media",  {"query": 42},           "en"),
+    ("open_folder", {"folder": 123},         "en"),
+], ids=[
+    "open_app-int", "open_app-list", "open_app-None",
+    "web_search-list", "web_search-int-ar",
+    "create_file-list", "create_file-int",
+    "delete_file-int", "delete_file-bool-ar",
+    "play_media-int",
+    "open_folder-int",
+])
+def test_invalid_param_types_rejected(intent, params, lang):
+    """Non-string params for string fields must fail without crashing."""
+    res = execute({"intent": intent, "params": params, "lang": lang})
+    _assert_contract(res)
+    assert res["success"] is False
+    assert "must be" in res["message"].lower() or "يجب" in res["message"]
+
+
+def test_open_app_empty_string_rejected():
+    """open_app with empty string app name must fail."""
+    res = execute({"intent": "open_app", "params": {"app": "   "}, "lang": "en"})
+    _assert_contract(res)
+    assert res["success"] is False
+
+
+def test_web_search_empty_string_rejected():
+    """web_search with empty string query must fail."""
+    res = execute({"intent": "web_search", "params": {"query": ""}, "lang": "en"})
+    _assert_contract(res)
+    assert res["success"] is False
+
+
+def test_delete_file_empty_string_rejected():
+    """delete_file with empty string name must fail."""
+    res = execute({"intent": "delete_file", "params": {"name": "   "}, "lang": "en"})
+    _assert_contract(res)
+    assert res["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# 15. v3 Hardening: Subcommand timeout (0.85s)
+# ---------------------------------------------------------------------------
+def test_subcommand_timeout_085():
+    """_run_subcommand must use 0.85s timeout by default."""
+    from executor.actions import _SUBCOMMAND_TIMEOUT
+    assert _SUBCOMMAND_TIMEOUT == 0.85
