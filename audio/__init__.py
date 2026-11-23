@@ -63,4 +63,13 @@ def get_pending_command():
         return None
 
 
-__all__ = ["wait_for_wake_word", "record_utterance", "record_wake_clip", "get_pending_command"]
+def get_pending_audio():
+    """The audio behind get_pending_command() (or None)."""
+    try:
+        from .wakeword import get_pending_audio as _impl
+        return _impl()
+    except Exception:
+        return None
+
+
+__all__ = ["wait_for_wake_word", "record_utterance", "record_wake_clip", "get_pending_command", "get_pending_audio"]

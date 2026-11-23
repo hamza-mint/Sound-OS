@@ -5,7 +5,7 @@ Exposes:
     SpeechToText (Mahmoud's core Whisper class)
 """
 import os
-from .stt import SpeechToText, SAMPLE_RATE, PROMPTS
+from .stt import SpeechToText, SAMPLE_RATE, PROMPTS, PROBE_PROMPT_AR
 from .textnorm import normalize
 from .run_live import Endpointer, SR
 
@@ -58,6 +58,16 @@ def transcribe(wav_path: str, lang_hint: str | None = None) -> dict:
         }
 
 
+def transcribe_probe(audio_input) -> str:
+    """Second opinion on an Arabic clip, decoded with the close-first prompt (see PROBE_PROMPT_AR).
+    Returns the text, or "" on any problem. Never raises."""
+    try:
+        text, _ = get_model().transcribe(audio_input, language="ar", prompt=PROBE_PROMPT_AR)
+        return text or ""
+    except Exception:
+        return ""
+
+
 def transcribe_wake(audio_input) -> dict:
     """Specialized ultra-fast wake phrase transcriber with 'Hey Dave' prompt."""
     try:
@@ -77,6 +87,7 @@ def transcribe_wake(audio_input) -> dict:
 
 __all__ = [
     "transcribe",
+    "transcribe_probe",
     "transcribe_wake",
     "SpeechToText",
     "Endpointer",

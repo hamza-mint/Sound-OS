@@ -198,7 +198,17 @@ def _is_wake_word(text: str) -> bool:
 
 
 _pending_command = None
+_pending_audio = None                  # the clip that produced _pending_command (main.py may need a 2nd opinion on it)
 _pending_lock = threading.Lock()
+
+
+def get_pending_audio():
+    """The audio (float32 array) behind the command returned by get_pending_command(), or None."""
+    global _pending_audio
+    with _pending_lock:
+        audio = _pending_audio
+        _pending_audio = None
+        return audio
 
 
 def get_pending_command() -> Optional[str]:
@@ -285,7 +295,7 @@ def _classify(text: str, full_decode=None):
 
 def _wait_phrase_or_enter() -> bool:
     """Wake on 'Hey Dave' / 'Hi Dave', combined wake+command, or direct command using continuous stream VAD."""
-    global _pending_command
+    global _pending_command, _pending_audio
     try:
         from stt import transcribe_wake, transcribe
     except Exception:
@@ -387,6 +397,7 @@ def _wait_phrase_or_enter() -> bool:
                                     _log(f"Wake word + Command captured: '{text}' -> '{payload}' \U0001F680")
                                     with _pending_lock:
                                         _pending_command = payload
+                                        _pending_audio = audio_arr
                                 else:
                                     _log(f"Wake word matched: '{text}' \u2705")
                                 return True
@@ -394,6 +405,7 @@ def _wait_phrase_or_enter() -> bool:
                                 _log(f"Direct command captured: '{payload}' \U0001F680")
                                 with _pending_lock:
                                     _pending_command = payload
+                                    _pending_audio = audio_arr
                                 return True
                             if kind == "needs_wake":
                                 _log(f"Heard '{payload[1]}' ({payload[0]}) - say 'Hey Dave' first for this one.")

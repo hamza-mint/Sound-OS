@@ -43,6 +43,12 @@ def _beam_size():
         return 5
 
 
+# Same commands, but the CLOSE verb is listed first. On unclear audio Whisper copies the FIRST verb of the prompt,
+# so "اقفل المتصفح" came out as "افتح المتصفح" with PROMPTS["ar"] (open first) and as "اقفل المتصفح" with this one,
+# while a clearly spoken "افتح" stayed "افتح" with both. A different answer from the two prompts = unclear audio.
+# (Seen on real recordings of the user's voice, base and small models.)
+PROBE_PROMPT_AR = ("اقفل المتصفح، افتح المتصفح، اقفل الملفات، افتح الملفات، اقفل التطبيق، علي الصوت، وطي الصوت.")
+
 MIN_SECONDS = 0.3      # shorter than this -> ignore
 MAX_WORDS_PER_SECOND = 2.5   # generous for isolated spoken commands; see trim_to_speech
 

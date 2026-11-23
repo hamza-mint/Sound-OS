@@ -11,8 +11,8 @@ import time
 if sys.platform.startswith("linux") and "DISPLAY" in os.environ and "QT_QPA_PLATFORM" not in os.environ:
     os.environ["QT_QPA_PLATFORM"] = "xcb"
 
-from audio import wait_for_wake_word, record_utterance, get_pending_command
-from stt import transcribe
+from audio import wait_for_wake_word, record_utterance, get_pending_command, get_pending_audio
+from stt import transcribe, transcribe_probe
 from intent_parser import parse, parse_yes_no, split_compound
 from safety import check, notify_confirmed
 from executor import execute
@@ -98,6 +98,49 @@ def _check_repeat_open(parsed, ask_yes_no):
     return parsed, True
 
 
+# ---- "open" or "close"? -------------------------------------------------------------------------------
+# On unclear Arabic audio Whisper copies the FIRST verb of its prompt (see stt.PROBE_PROMPT_AR). So the clip is decoded
+# a second time with the close-first prompt. Same open/close answer twice = clear audio, go ahead. Different answers
+# = we really don't know -> ask ONE yes/no question (yes/no sound very different from افتح/اقفل).
+# SOUNDOS_PROBE=0 turns it off. Costs one extra decode, only for Arabic open/close commands.
+_OPEN_CLOSE = ("open_app", "close_app")
+_ARABIC = re.compile("[\u0600-\u06FF]")
+
+
+def _resolve_open_close(text, audio, ask_yes_no, probe=None):
+    """Returns the text to run ("" = do nothing)."""
+    if (os.environ.get("SOUNDOS_PROBE", "1") == "0" or ask_yes_no is None or audio is None
+            or not text or not _ARABIC.search(text)):
+        return text
+    first = parse(text)
+    if first["intent"] not in _OPEN_CLOSE:
+        return text
+    try:
+        alt = (probe or transcribe_probe)(audio)
+    except Exception:
+        return text
+    if not alt:
+        return text
+    second = parse(alt)
+    if second["intent"] not in _OPEN_CLOSE or second["intent"] == first["intent"]:
+        return text                                               # both decodes agree: clear audio
+    a1, a2 = first["params"].get("app"), second["params"].get("app")
+    if a1 != a2 and "current" not in (a1, a2):
+        return text                                               # different apps: not an open/close doubt
+    close_text, open_text = (text, alt) if first["intent"] == "close_app" else (alt, text)
+    app = a1 if a1 != "current" else a2
+    print(f"[Sound OS] \u2753 Not sure if you said OPEN or CLOSE ({text!r} vs {alt!r}).")
+    speak(f"Did you want me to close {app}? Say yes to close it, or no to open it.", "en")
+    resp = ask_yes_no()
+    answer = parse_yes_no(resp if isinstance(resp, str) else (resp or {}).get("text", ""))
+    if answer is True:
+        return close_text
+    if answer is False:
+        return open_text
+    print("[Sound OS] \u2753 No clear answer: doing nothing.")
+    return ""
+
+
 def _speakable(msg):
     """Text for the voice: the [DRY-RUN] / [تجربة] tag is for the screen, read aloud it was 'D-R-Y R-U-N'."""
     return re.sub(r"\[(?:DRY-RUN|تجربة)\]\s*", "", str(msg or "")).strip()
@@ -179,6 +222,8 @@ def listen_utterance():
     if not wav_path:
         return {"text": "", "lang": "en", "confidence": 0.0}
     res = transcribe(wav_path)
+    if res.get("text"):
+        res = dict(res, text=_resolve_open_close(res["text"], wav_path, lambda: listen_text()))
     try:
         from audio.debug_clips import save_clip
         save_clip(wav_path, res.get("text", ""), "cmd")        # only if SOUNDOS_SAVE_AUDIO is set
@@ -219,7 +264,11 @@ if __name__ == "__main__":
             wait_until_silent()        # finish speaking first, so the wake word listener doesn't hear Dave
             wait_for_wake_word()
             pending_cmd = get_pending_command()
+            pending_audio = get_pending_audio()
             if pending_cmd:
+                pending_cmd = _resolve_open_close(pending_cmd, pending_audio, listen_text)
+                if not pending_cmd:
+                    continue
                 print(f"\n[Sound OS] 🚀 Command captured directly: {pending_cmd!r}")
                 on_wake()
                 handle(pending_cmd, ask_yes_no=listen_text)
