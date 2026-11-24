@@ -10,6 +10,7 @@ Uses only the standard library. Any failure -> None -> the parser says "unknown"
 """
 import json
 import os
+import threading
 import urllib.request
 
 # OLLAMA_URL may be the base ("http://host:11434") or the full ".../api/generate" - both work.
@@ -62,7 +63,43 @@ def _validate(data):
     return intent, params
 
 
-def ask_llm_ex(text, timeout=None):
+_on_thinking = None          # optional UI hook: fn(True) before a slow LLM call, fn(False) after it
+
+
+def set_thinking_callback(fn):
+    """main.py registers a function here so the UI can show "thinking..." during the ~10 s LLM call."""
+    global _on_thinking
+    _on_thinking = fn
+
+
+def _notify(active):
+    try:
+        if _on_thinking:
+            _on_thinking(active)
+    except Exception:                                # a UI problem must never break the parser
+        pass
+
+
+def status():
+    """(ok, message) - is Ollama reachable and is MODEL pulled? Used for a clear message at start-up."""
+    base = URL[: -len("/api/generate")] if URL.endswith("/api/generate") else URL
+    try:
+        with urllib.request.urlopen(base + "/api/tags", timeout=3) as r:
+            names = [m.get("name", "") for m in json.loads(r.read()).get("models", [])]
+    except Exception:
+        return False, f"Ollama is not reachable at {base} (start it with: ollama serve)"
+    want = MODEL if ":" in MODEL else MODEL + ":latest"
+    if want not in names:
+        return False, f"Ollama is running but model {MODEL!r} is not pulled (ollama pull {MODEL})"
+    return True, f"Ollama OK, model {MODEL}"
+
+
+def warm_up():
+    """Load the model into RAM in the background so the first real LLM call is not slower."""
+    threading.Thread(target=ask_llm_ex, args=("ارفع الصوت",), kwargs={"quiet": True}, daemon=True).start()
+
+
+def ask_llm_ex(text, timeout=None, quiet=False):
     """text -> ("ok", (intent, params)) | ("unknown", None) | ("error", None). Never raises.
     "error" = Ollama off / timeout / bad JSON, so the caller can keep its own answer."""
     body = json.dumps({
@@ -70,12 +107,17 @@ def ask_llm_ex(text, timeout=None):
         "stream": False, "format": "json", "think": False, "keep_alive": "30m",
         "options": {"temperature": 0},
     }).encode()
+    if not quiet:
+        _notify(True)
     try:
         req = urllib.request.Request(URL, body, {"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout or TIMEOUT) as r:
             answer = json.loads(json.loads(r.read())["response"])
     except Exception:
         return "error", None
+    finally:
+        if not quiet:
+            _notify(False)
     ok = _validate(answer)
     return ("ok", ok) if ok else ("unknown", None)
 

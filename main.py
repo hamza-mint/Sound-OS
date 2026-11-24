@@ -18,9 +18,36 @@ from safety import check, notify_confirmed
 from executor import execute
 from ui_tts import speak, notify, play_wake_ack, play_done_sound, wait_until_silent, strip_own_speech
 try:
-    from ui_tts.dave_bridge import on_wake, on_heard, on_done
+    from ui_tts.dave_bridge import on_wake, on_heard, on_done, say as say_bubble, hush
 except ImportError:
-    from ui_tts.coucou_bridge import on_wake, on_heard, on_done
+    from ui_tts.coucou_bridge import on_wake, on_heard, on_done, say as say_bubble, hush
+
+
+def _llm_thinking(active):
+    """Shown while the local LLM (Plan B) works: ~10 s on a CPU, so the user must see that Dave is not frozen."""
+    if active:
+        print("[Sound OS] \U0001F914 Asking the local LLM (Plan B)... this can take ~10 s", flush=True)
+        try:
+            say_bubble("Thinking... \U0001F914", seconds=25)
+        except Exception:
+            pass
+    else:
+        try:
+            hush()
+        except Exception:
+            pass
+
+
+def _setup_llm():
+    """Only when SOUNDOS_LLM=1: hook the UI, check Ollama, load the model in the background."""
+    if os.environ.get("SOUNDOS_LLM") != "1":
+        return
+    from intent_parser import llm_fallback
+    llm_fallback.set_thinking_callback(_llm_thinking)
+    ok, msg = llm_fallback.status()
+    print(f"[Sound OS] \U0001F9E0 LLM fallback ON - {msg}" if ok else f"[Sound OS] \u26A0 LLM fallback ON but NOT ready - {msg}")
+    if ok:
+        llm_fallback.warm_up()
 
 
 def _execute_single(text, ask_yes_no, lang_hint=None, confidence=1.0, parsed=None):
@@ -255,6 +282,7 @@ if __name__ == "__main__":
     args = ap.parse_args()
     if args.no_ui:
         os.environ["SOUNDOS_NO_UI"] = "1"
+    _setup_llm()
     if args.text:
         on_wake()
         handle(args.text, ask_yes_no=lambda: input("yes/no> "))
