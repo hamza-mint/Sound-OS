@@ -572,9 +572,15 @@ def parse(text, lang=None):
         hit = rule(t)
         if hit:
             return _out(hit[0], hit[1], lang, raw)
+    _fuzzy_hit.last_alt = None
     hit = _fuzzy_hit(t)
     if hit:
-        return _out(hit[0], hit[1], lang, raw)
+        if os.getenv("SOUNDOS_LLM") == "1":                      # OPTIONAL second opinion on shaky fuzzy hits
+            from .llm_fallback import verify_fuzzy
+            hit = verify_fuzzy(raw, t, hit, _fuzzy_hit.last_alt)
+        if hit:
+            return _out(hit[0], hit[1], lang, raw)
+        return _out("unknown", {}, lang, raw)                    # LLM disagreed -> fail safe
     hit = _first_clause_hit(raw)
     if hit:
         return _out(hit[0], hit[1], lang, raw)
@@ -614,6 +620,7 @@ def _fuzzy_hit(t):
                 hit = rule(alt)
                 if hit:
                     if hit[0] not in DANGEROUS:
+                        _fuzzy_hit.last_alt = alt                # for the optional LLM second opinion
                         return hit
                     break                                        # dangerous -> try the next variant
         # "hoping down loads" / "oben documents": the English verb "open" came out as gibberish. Only OPENING
@@ -625,6 +632,7 @@ def _fuzzy_hit(t):
                     hit = rule(alt)
                     if hit:
                         if hit[0] in ("open_app", "open_folder"):
+                            _fuzzy_hit.last_alt = alt
                             return hit
                         break
     except Exception as exc:                                     # parser must never raise ...
