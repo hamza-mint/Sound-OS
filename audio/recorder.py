@@ -560,9 +560,7 @@ def _record_utterance(max_seconds: float, silence_seconds: float, is_wake: bool 
         mic.close()
 
     if not started:
-        if is_wake:
-            return ""                                        # no speech during wake listening: skip STT entirely
-        frames = list(preroll)                               # keep short ambient clip for normal commands
+        return "" if is_wake else _silent_wav()             # nobody spoke: never feed ambient noise into STT
     elif stopped_on_silence:
         trim = silent_run - TRAILING_KEEP_BLOCKS
         if trim > 0:

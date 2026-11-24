@@ -296,10 +296,10 @@ def _strip_wake_word(text: str) -> str:
     """Remove leading/trailing wake word phrases from text (e.g. 'Hey Dave open browser' -> 'open browser')."""
     norm = text.strip()
     patterns = [
-        r"^(?:hey|hay|hi|ay|hello|ok|okay)?\s*(?:dave|dev|david|dafe|day)\s*[,.:\-]?\s*",
-        r"^(?:هاي|هي|يا|الو)?\s*(?:ديف|دايف|ديب)\s*[,.:\-]?\s*",
-        r"\s*[,.:\-]?\s*(?:hey|hay|hi|ay|hello|ok|okay)?\s*(?:dave|dev|david|dafe|day)$",
-        r"\s*[,.:\-]?\s*(?:هاي|هي|يا|الو)?\s*(?:ديف|دايف|ديب)$",
+        r"^(?:hey|hay|hi|ay|hello|ok|okay)?\s*(?:dave|dev|david|dafe|day)\s*[،,.:\-]?\s*",
+        r"^(?:هاي|هي|يا|الو)?\s*(?:ديف|دايف|ديب)\s*[،,.:\-]?\s*",
+        r"\s*[،,.:\-]?\s*(?:hey|hay|hi|ay|hello|ok|okay)?\s*(?:dave|dev|david|dafe|day)$",
+        r"\s*[،,.:\-]?\s*(?:هاي|هي|يا|الو)?\s*(?:ديف|دايف|ديب)$",
     ]
     for p in patterns:
         norm = re.sub(p, "", norm, flags=re.IGNORECASE).strip()

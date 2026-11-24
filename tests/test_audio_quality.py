@@ -187,3 +187,15 @@ def test_silence_still_ends_the_recording(monkeypatch):
     levels = [50] * 8 + [2000] * 10 + [50] * 60
     secs = run_script(monkeypatch, levels)
     assert secs < 1.5                                                    # stopped on silence, not at max_seconds
+
+
+def test_no_speech_returns_pure_digital_silence(monkeypatch):
+    """When nobody speaks during NO_SPEECH_TIMEOUT, return pure zero PCM so Whisper never hallucinates on room noise."""
+    ScriptedMic.levels = [180] * 25                                      # ambient noise below 300 threshold
+    monkeypatch.setattr(recorder, "MicStream", ScriptedMic)
+    monkeypatch.setenv("SOUNDOS_NORMALIZE", "0")
+    path = _record_utterance(1.0, 0.3)
+    assert path
+    with wave.open(path) as w:
+        raw = w.readframes(w.getnframes())
+    assert recorder.rms(raw) == 0.0

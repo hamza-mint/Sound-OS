@@ -292,14 +292,20 @@ def r_create_file(t):
     m = re.search(FILE, after)
     if m:
         rest = after[m.end():]
+        # Reattach spoken "dot <ext>" / "نقطه <ext>" / " .<ext>" (e.g. "create file dot py" -> "file.py")
+        rest_dot = re.sub(r"^\s*(?:dot|نقطه|\.)\s*", ".", rest)
         # "file" consumed from "file.txt" → reconstruct the full filename
-        if rest.startswith("."):
-            tok = rest.split()[0]                       # ".txt" or ".py …"
-            ext_part = tok[1:]                           # "txt"
-            if ext_part.lower() in _KNOWN_EXT:
+        if rest_dot.startswith("."):
+            tok = rest_dot.split()[0]                       # ".txt" or ".py …"
+            ext_part = tok[1:].lower()
+            ext_part = {"pi": "py", "pie": "py", "dxt": "txt"}.get(ext_part, ext_part)
+            if ext_part in _KNOWN_EXT:
                 matched = after[m.start():m.end()]
-                return ("create_file", {"name": matched + tok})
+                return ("create_file", {"name": matched + "." + ext_part})
         name = _clean_name(rest)
+        if name and name.lower() in _KNOWN_EXT and m.start() == 0:
+            matched = after[m.start():m.end()]
+            return ("create_file", {"name": matched + "." + name.lower()})
         return ("create_file", {"name": name} if name else {})
 
     # Path 3: bare filename with known extension (e.g., "create hamza.txt")
@@ -483,9 +489,10 @@ def _prepare(raw):
     t = re.sub(r"\b(?:لكو\s*ليتر|كالكو\s*ليتر|كلكوليتر|كالكيوليتر)\b", "calculator", t)
     t = re.sub(r"\b(?:براوزر|البراوزر)\b", "browser", t)
 
-    # Acoustic Whisper mishearings: "dot txt" transcribed as ".dxt"
+    # Acoustic Whisper mishearings: "dot txt" -> ".dxt", "dot py" -> ".pi" / ".pie"
     t = re.sub(r"\s*\b(?:dot|\.)\s*(?:dxt|txt)\b", ".txt", t)
     t = re.sub(r"\.(?:dxt|d\s*xt)\b", ".txt", t)
+    t = re.sub(r"(?:\s*\b(?:dot|نقطه)\s*|\s*\.\s*)(?:pi|pie)\b", ".py", t)
     # Egyptian Arabic spoken mishearings for excel/sheet commands
     t = re.sub(r"\b(?:ام\s*اللي|املي|ملي|امل)\b", "اعملي", t)
     t = re.sub(r"\b(?:الشيط|شيط|شيث|شد)\b", "شيت", t)

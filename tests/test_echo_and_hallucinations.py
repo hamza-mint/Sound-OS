@@ -140,3 +140,25 @@ def test_wake_decode_uses_vad_so_noise_cannot_echo_the_prompt():
 def test_wake_decode_drops_foreign_script_hallucination():
     stt, model, audio = _wake_stt("お便できます。")
     assert stt.transcribe_wake(audio)[0] == ""
+
+
+def test_trim_to_speech_preserves_dot_in_filename():
+    assert SpeechToText.trim_to_speech("Hey Dave, create file.py", 1.6) == "Hey Dave, create file.py"
+    assert SpeechToText.trim_to_speech("Create file.py, open terminal, mute.", 1.2) == "Create file.py"
+
+
+def test_decode_drops_high_no_speech_prob_hallucination():
+    from types import SimpleNamespace
+    import numpy as np
+    from stt.tests.test_stt import make_stt
+
+    class HighNoSpeechModel:
+        def transcribe(self, audio, **kw):
+            seg = SimpleNamespace(text=" افتح الترمينال", no_speech_prob=0.80)
+            info = SimpleNamespace(language="ar", all_language_probs=[("ar", 0.9), ("en", 0.1)])
+            return iter([seg]), info
+
+    t = np.arange(16000) / 16000
+    audio = (0.01 * np.sin(2 * np.pi * 200 * t)).astype(np.float32)
+    text, _ = make_stt(HighNoSpeechModel()).transcribe(audio, language="ar")
+    assert text == ""

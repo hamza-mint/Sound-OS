@@ -117,3 +117,32 @@ def test_pending_audio_travels_with_the_pending_command():
 @pytest.mark.parametrize("answer", ["عيوة، ياس", "عيوه", "yas", "ياس"])
 def test_yes_variants_heard_in_a_real_session(answer):
     assert parse_yes_no(answer) is True
+
+
+def test_listen_utterance_does_not_recurse_probe(monkeypatch):
+    """Yes/no follow-up from _resolve_open_close must not re-enter _resolve_open_close (real log bug)."""
+    probe_calls = []
+    rec_calls = 0
+
+    def fake_record():
+        nonlocal rec_calls
+        rec_calls += 1
+        return f"fake_{rec_calls}.wav"
+
+    def fake_transcribe(wav_path):
+        return {"text": "افتح الترمينال", "lang": "ar", "confidence": 1.0}
+
+    def fake_probe(audio):
+        probe_calls.append(audio)
+        return ""
+
+    monkeypatch.setattr(sm, "wait_until_silent", lambda: None)
+    monkeypatch.setattr(sm, "record_utterance", fake_record)
+    monkeypatch.setattr(sm, "transcribe", fake_transcribe)
+    monkeypatch.setattr(sm, "transcribe_probe", fake_probe)
+    monkeypatch.setattr(sm, "speak", lambda *a, **kw: None)
+
+    out = sm.listen_utterance()
+    assert out["text"] == ""
+    assert len(probe_calls) == 1
+    assert rec_calls == 2

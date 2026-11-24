@@ -60,10 +60,16 @@ def test_create_file(phrase, name):
     ("create excel sheet budget", "budget.xlsx"),
     ("create word document report", "report.docx"),
     ("create python file test", "test.py"),
-    # "file.ext" (the word "file" IS the filename)
+    # "file.ext" (the word "file" IS the filename) and spoken dot/phonetic variants
     ("create file.txt", "file.txt"),
     ("create file.py", "file.py"),
     ("create file.md", "file.md"),
+    ("create file dot py", "file.py"),
+    ("create file .py", "file.py"),
+    ("create file dot pi", "file.py"),
+    ("create file.pi", "file.py"),
+    ("create file py", "file.py"),
+    ("create file dot md", "file.md"),
     # document/sheet/script as generic FILE word
     ("create document notes.docx", "notes.docx"),
     ("create script test.py", "test.py"),

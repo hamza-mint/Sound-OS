@@ -211,15 +211,19 @@ def handle(text, ask_yes_no, lang_hint=None, confidence=1.0):
     return {"success": all_success, "message": combined_msg, "results": results}
 
 
-def listen_utterance():
+def listen_utterance(resolve_open_close: bool = True, prompt_user: bool = False):
     """Real microphone path: record one utterance and return full STT metadata dict."""
     wait_until_silent()            # never record Dave's own "Yes?" / answer (the mic hears the speakers)
+    if prompt_user:
+        print("[Sound OS] 🎙 Listening for command... Speak now.", flush=True)
     wav_path = record_utterance()
     if not wav_path:
         return {"text": "", "lang": "en", "confidence": 0.0}
     res = transcribe(wav_path)
-    if res.get("text"):
-        res = dict(res, text=_resolve_open_close(res["text"], wav_path, lambda: listen_text()))
+    if resolve_open_close and res.get("text"):
+        res = dict(res, text=_resolve_open_close(
+            res["text"], wav_path, lambda: listen_utterance(resolve_open_close=False).get("text", ""),
+        ))
     try:
         from audio.debug_clips import save_clip
         save_clip(wav_path, res.get("text", ""), "cmd")        # only if SOUNDOS_SAVE_AUDIO is set
@@ -233,12 +237,17 @@ def listen_utterance():
 
 
 def listen_text():
-    """Legacy helper returning just the text."""
-    res = listen_utterance()
+    """Legacy helper returning just the text (skips open/close re-prompting to avoid recursion)."""
+    res = listen_utterance(resolve_open_close=False)
     return res.get("text", "")
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(line_buffering=True)
+        except Exception:
+            pass
     ap = argparse.ArgumentParser()
     ap.add_argument("--text", help="skip mic + STT and parse this text")
     ap.add_argument("--wav", help="skip mic and transcribe this WAV file")
@@ -275,7 +284,7 @@ if __name__ == "__main__":
                 tts_lang = os.environ.get("SOUNDOS_TTS_LANG", "en").lower().strip()
                 wake_prompt = "Yes?" if tts_lang == "en" else "نعم؟"
                 speak(wake_prompt, tts_lang)
-                stt_data = listen_utterance()
+                stt_data = listen_utterance(prompt_user=True)
                 raw_text = stt_data.get("text", "")
                 if raw_text:
                     handle(
@@ -285,5 +294,6 @@ if __name__ == "__main__":
                         confidence=stt_data.get("confidence", 1.0),
                     )
                 else:
+                    print("[Sound OS] 🔇 No speech detected.", flush=True)
                     on_done(False)
 

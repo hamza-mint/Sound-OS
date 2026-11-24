@@ -148,7 +148,9 @@ class SpeechToText:
         command. A short clip cannot hold that many words, so keep whole clauses (split by ، , . ؟ ?)
         only while they fit in about MAX_WORDS_PER_SECOND; the first clause is always kept.
         Missing a 2nd command is safe (the user repeats it); executing an invented one is not."""
-        clauses = [c.strip() for c in re.split(r"[،,.؟?!؛;]+", text) if c.strip()]
+        # Never split on a dot inside filenames like "file.py" or "notes.txt";
+        # sentence periods are followed by whitespace or end-of-string.
+        clauses = [c.strip() for c in re.split(r"[،,؟?!؛;]+|\.(?=\s|$)", text) if c.strip()]
         if len(clauses) < 2:
             return text
         allowed = max(len(clauses[0].split()), math.ceil(voiced_seconds * MAX_WORDS_PER_SECOND))
@@ -159,7 +161,10 @@ class SpeechToText:
                 break
             kept.append(c)
             words += n
-        return text if len(kept) == len(clauses) else "، ".join(kept)
+        if len(kept) == len(clauses):
+            return text
+        sep = "، " if re.search(r"[\u0621-\u064A]", text) else ", "
+        return sep.join(kept)
 
     # ---------- decoding ----------
     def _decode(self, audio, language, use_prompt, custom_prompt=None):
@@ -185,8 +190,15 @@ class SpeechToText:
             no_repeat_ngram_size=3,             # completely prevent repetitive hallucination loops
             repetition_penalty=1.2,
         )
-        # `segments` is a generator: the real decoding happens in this line
-        text = " ".join(s.text.strip() for s in segments).strip()
+        # `segments` is a generator: the real decoding happens here.
+        # Drop segments where Whisper itself predicts high no_speech_prob (>= 0.65):
+        # initial_prompt can raise avg_logprob above faster-whisper's default cutoff on room noise.
+        kept_segs = [
+            s.text.strip()
+            for s in segments
+            if (getattr(s, "no_speech_prob", 0.0) or 0.0) < 0.65
+        ]
+        text = " ".join(kept_segs).strip()
         if self._is_repetitive(text) or self.has_foreign_script(text) or self.is_hallucination(text):
             text = ""
         elif text:
@@ -222,7 +234,7 @@ class SpeechToText:
         if lang not in ALLOWED_LANGS:
             lang = max(ALLOWED_LANGS, key=lambda l: probs.get(l, 0.0))
             text, _ = self._decode(audio, lang, use_prompt, custom_prompt=prompt)
-        if text and re.search(r"[\u0600-\u06FF]", text):
+        if text and re.search(r"[\u0621-\u064A\u0671-\u06D3]", text):
             lang = "ar"
         self.last_candidates = [{"lang": lang, "text": text, "score": probs.get(lang)}]
         return text, lang
