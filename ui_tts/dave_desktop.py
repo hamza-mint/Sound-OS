@@ -56,7 +56,7 @@ def _spawn():
         env = dict(os.environ)
         if sys.platform.startswith("linux") and "DISPLAY" in os.environ and "QT_QPA_PLATFORM" not in os.environ:
             env["QT_QPA_PLATFORM"] = "xcb"
-        _proc = subprocess.Popen([sys.executable, "-m", pkg + ".dave_desktop"],
+        _proc = subprocess.Popen([sys.executable, "-W", "ignore::RuntimeWarning", "-m", pkg + ".dave_desktop"],
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
                                  encoding="utf-8", cwd=root, creationflags=flags, env=env)
         threading.Thread(target=_read_window, args=(_proc,), daemon=True).start()

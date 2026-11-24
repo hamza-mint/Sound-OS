@@ -11,6 +11,7 @@ So if the prompt-free text gives no POSITIVE evidence for the heard verb, we dou
 n = 7 real clips: it separated them correctly. Tune EVIDENCE with more recordings (SOUNDOS_SAVE_AUDIO).
 """
 import difflib
+import re
 
 from .normalize import normalize as N
 
@@ -39,7 +40,13 @@ def open_evidence(probe_text: str, app: str) -> float:
     noun = APP_NOUN.get(app)
     if not noun or not probe_text:
         return 0.0
-    return _sim(probe_text, f"{OPEN_VERB} {noun}") - _sim(probe_text, f"{CLOSE_VERB} {noun}")
+    base_ev = _sim(probe_text, f"{OPEN_VERB} {noun}") - _sim(probe_text, f"{CLOSE_VERB} {noun}")
+    norm = N(probe_text)
+    is_close_marker = bool(re.match(r"^(ايه|اي\s+|.*?\bمن\b)", norm))
+    is_open_marker = bool(re.match(r"^(يفر|ايفر|افر|افت|ابت)", norm))
+    if is_open_marker and not is_close_marker:
+        return max(base_ev, 0.09)
+    return base_ev
 
 
 def verb_doubt(heard_intent: str, app: str, probe_text: str) -> bool:

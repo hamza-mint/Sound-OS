@@ -63,7 +63,7 @@ def _execute_single(text, ask_yes_no, lang_hint=None, confidence=1.0, parsed=Non
 # Opening an app that we opened a moment ago is almost always that mistake (or a retry of it), so instead of
 # opening a 2nd window we ask once. yes -> close it, no -> open it again as asked, silence -> do nothing.
 # SOUNDOS_REPEAT_CHECK=0 turns it off.
-REPEAT_WINDOW_SEC = 60
+REPEAT_WINDOW_SEC = int(os.environ.get("SOUNDOS_REPEAT_WINDOW", "15"))
 _RECENT_OPEN = {}                      # app -> time.monotonic() of the last successful open_app
 
 
@@ -157,11 +157,11 @@ def handle(text, ask_yes_no, lang_hint=None, confidence=1.0):
 
     results = []
     all_success = True
-    lang = lang_hint or "en"
+    lang = "ar" if _ARABIC.search(text) else (lang_hint or "en")
 
     for i, cmd in enumerate(commands, 1):
         t_cmd_start = time.perf_counter()
-        parsed = parse(cmd, lang=lang_hint)
+        parsed = parse(cmd, lang=lang)
         intent = parsed.get("intent", "unknown")
         params = parsed.get("params", {})
 
@@ -272,8 +272,9 @@ if __name__ == "__main__":
                 print("\n[Sound OS] 🔔 Wake word detected!")
                 on_wake()
                 # TTS speaks wake response naturally (no static i_am_here.wav file)
-                wake_prompt = "Yes?" if os.environ.get("SOUNDOS_TTS_LANG", "en").lower().strip() == "en" else "نعم؟"
-                speak(wake_prompt, "en")
+                tts_lang = os.environ.get("SOUNDOS_TTS_LANG", "en").lower().strip()
+                wake_prompt = "Yes?" if tts_lang == "en" else "نعم؟"
+                speak(wake_prompt, tts_lang)
                 stt_data = listen_utterance()
                 raw_text = stt_data.get("text", "")
                 if raw_text:

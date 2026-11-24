@@ -220,6 +220,8 @@ class SpeechToText:
         if lang not in ALLOWED_LANGS:
             lang = max(ALLOWED_LANGS, key=lambda l: probs.get(l, 0.0))
             text, _ = self._decode(audio, lang, use_prompt, custom_prompt=prompt)
+        if text and re.search(r"[\u0600-\u06FF]", text):
+            lang = "ar"
         self.last_candidates = [{"lang": lang, "text": text, "score": probs.get(lang)}]
         return text, lang
 

@@ -6,12 +6,20 @@ from intent_parser.verb_check import verb_doubt, open_evidence, command_text, AP
 
 # clearly said "افتح المتصفح": the "ت" of افتح is audible
 OPEN_LIKE = ["إفتهم صفح", "إبتهم الثفر"]
+# real Egyptian Arabic prompt-free decodes of user's spoken "افتح المتصفح"
+REAL_USER_OPEN = ["يفرمت صف", "ايفر متصف", "إفر مدصد فهي يس"]
 # said "اقفل المتصفح" (the wake decode of the first one correctly wrote اقفل المتصفح); no "ت" after "اف"
 CLOSE_LIKE = ["ايه فرمتصف", "ايه فرمت صفح", "ايفر من صفح", "اي فرمت الثفر"]
 
 
 @pytest.mark.parametrize("probe", OPEN_LIKE)
 def test_audio_that_sounds_like_open_backs_the_open_verb(probe):
+    assert open_evidence(probe, "firefox") >= 0.08
+    assert verb_doubt("open_app", "firefox", probe) is False
+
+
+@pytest.mark.parametrize("probe", REAL_USER_OPEN)
+def test_real_user_egyptian_open_backs_open_verb(probe):
     assert open_evidence(probe, "firefox") >= 0.08
     assert verb_doubt("open_app", "firefox", probe) is False
 
