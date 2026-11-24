@@ -1,14 +1,15 @@
-"""'اقفل المتصفح' heard as 'افتح المتصفح': the probe (2nd decode with the close-first prompt) detects unclear audio.
-On real recordings (base/small) the normal prompt gave 'افتح' and the close-first prompt gave 'اقفل' for the
-unclear clip, while a clearly spoken 'افتح' was 'افتح' with both.   Run: pytest -q tests/test_open_close_probe.py
-"""
+"""'اقفل المتصفح' heard as 'افتح المتصفح'. A prompt-free decode (probe) decides if the heard verb is backed by the audio;
+if not, ONE short yes/no question is asked.   Run: pytest -q tests/test_open_close_probe.py"""
 import numpy as np
 import pytest
 
 import main as sm
 from audio import wakeword
+from intent_parser import parse_yes_no
 
 AUDIO = np.zeros(16000, np.float32)
+CLOSE_LIKE = "ايه فرمت صفح"        # real prompt-free text of a spoken "اقفل المتصفح"
+OPEN_LIKE = "إفتهم صفح"            # real prompt-free text of a spoken "افتح المتصفح"
 
 
 @pytest.fixture(autouse=True)
@@ -37,69 +38,72 @@ def ask_returning(answer, asked=None):
     return ask
 
 
-def test_both_decodes_agree_so_no_question():
+def test_clear_open_audio_is_not_questioned():
     asked = []
-    out = sm._resolve_open_close("افتح المتصفح", AUDIO, ask_returning("ايوه", asked), probe=probe_returning("افتح المتصفح."))
-    assert out == "افتح المتصفح" and asked == []
-    out = sm._resolve_open_close("اقفل المتصفح", AUDIO, ask_returning("ايوه", asked), probe=probe_returning("اقفل المتصفح"))
-    assert out == "اقفل المتصفح" and asked == []
+    assert sm._resolve_open_close("افتح المتصفح", AUDIO, ask_returning("ايوه", asked), probe=probe_returning(OPEN_LIKE)) == "افتح المتصفح"
+    assert asked == []
 
 
 @pytest.mark.parametrize("answer,expected", [
-    ("ايوه", "اقفل المتصفح"),            # yes = close
-    ("نعم", "اقفل المتصفح"),
-    ("لا", "افتح المتصفح"),              # no = open
-    ("", ""), ("blah", ""), (None, ""),  # unclear: do nothing
+    ("ايوه", "اقفل المتصفح"), ("نعم", "اقفل المتصفح"), ("عيوة، ياس", "اقفل المتصفح"),   # last one = real STT output of "ايوه"
+    ("لا", "افتح المتصفح"),
+    ("", ""), ("blah", ""), (None, ""),
 ])
-def test_the_decodes_disagree_so_one_yes_no_question_decides(answer, expected, quiet):
+def test_unclear_audio_asks_one_question(answer, expected, quiet):
     asked = []
-    out = sm._resolve_open_close("افتح المتصفح", AUDIO, ask_returning(answer, asked), probe=probe_returning("اقفل المتصفح"))
+    out = sm._resolve_open_close("افتح المتصفح", AUDIO, ask_returning(answer, asked), probe=probe_returning(CLOSE_LIKE))
     assert out == expected and asked == [1]
-    assert any("close firefox" in s for s in quiet)
+    assert quiet and quiet[0] == "Close firefox? Yes or no."           # short: the user answers before a long question ends
 
 
-def test_works_the_other_way_round_too():
+def test_heard_close_but_audio_says_open_also_asks():
     out = sm._resolve_open_close("اقفل المتصفح", AUDIO, ask_returning("لا"), probe=probe_returning("افتح المتصفح"))
     assert out == "افتح المتصفح"
 
 
+def test_heard_close_with_neutral_audio_is_trusted():
+    asked = []
+    assert sm._resolve_open_close("اقفل المتصفح", AUDIO, ask_returning("ايوه", asked), probe=probe_returning(CLOSE_LIKE)) == "اقفل المتصفح"
+    assert asked == []
+
+
 def test_no_probe_when_it_cannot_matter():
     calls = []
-    p = probe_returning("اقفل المتصفح", calls)
-    assert sm._resolve_open_close("open the browser", AUDIO, ask_returning("yes"), probe=p) == "open the browser"   # English
-    assert sm._resolve_open_close("علي الصوت", AUDIO, ask_returning("yes"), probe=p) == "علي الصوت"                  # not open/close
-    assert sm._resolve_open_close("افتح المتصفح", None, ask_returning("yes"), probe=p) == "افتح المتصفح"             # no audio
-    assert sm._resolve_open_close("افتح المتصفح", AUDIO, None, probe=p) == "افتح المتصفح"                            # cannot ask
+    p = probe_returning(CLOSE_LIKE, calls)
+    assert sm._resolve_open_close("open the browser", AUDIO, ask_returning("yes"), probe=p) == "open the browser"
+    assert sm._resolve_open_close("علي الصوت", AUDIO, ask_returning("yes"), probe=p) == "علي الصوت"
+    assert sm._resolve_open_close("افتح المتصفح", None, ask_returning("yes"), probe=p) == "افتح المتصفح"
+    assert sm._resolve_open_close("افتح المتصفح", AUDIO, None, probe=p) == "افتح المتصفح"
+    assert sm._resolve_open_close("اقفل", AUDIO, ask_returning("yes"), probe=p) == "اقفل"                  # "current" window
     assert sm._resolve_open_close("", AUDIO, ask_returning("yes"), probe=p) == ""
     assert calls == []
 
 
-def test_different_apps_or_failures_are_not_an_open_close_doubt():
-    asked = []
-    assert sm._resolve_open_close("افتح المتصفح", AUDIO, ask_returning("yes", asked),
-                                  probe=probe_returning("اقفل الترمينال")) == "افتح المتصفح" and asked == []
-    for bad in ("", RuntimeError("model busy"), "علي الصوت", "blah"):
-        assert sm._resolve_open_close("افتح المتصفح", AUDIO, ask_returning("yes", asked), probe=probe_returning(bad)) == "افتح المتصفح"
-    assert asked == []
+def test_a_crashing_probe_never_blocks_the_command():
+    assert sm._resolve_open_close("افتح المتصفح", AUDIO, ask_returning("yes"),
+                                  probe=probe_returning(RuntimeError("model busy"))) == "افتح المتصفح"
 
 
 def test_can_be_switched_off(monkeypatch):
     monkeypatch.setenv("SOUNDOS_PROBE", "0")
     calls = []
-    assert sm._resolve_open_close("افتح المتصفح", AUDIO, ask_returning("yes"), probe=probe_returning("اقفل المتصفح", calls)) == "افتح المتصفح"
+    assert sm._resolve_open_close("افتح المتصفح", AUDIO, ask_returning("yes"), probe=probe_returning(CLOSE_LIKE, calls)) == "افتح المتصفح"
     assert calls == []
 
 
-def test_probe_uses_the_close_first_prompt():
-    from stt import PROBE_PROMPT_AR
-    assert PROBE_PROMPT_AR.index("اقفل المتصفح") < PROBE_PROMPT_AR.index("افتح المتصفح")
-    from stt.stt import PROMPTS
-    assert PROMPTS["ar"].index("افتح المتصفح") < PROMPTS["ar"].index("اقفل المتصفح")     # the two are opposite
-
-
-def test_probe_never_raises():
+def test_transcribe_probe_never_raises_and_is_prompt_free(monkeypatch):
     from stt import transcribe_probe
+    import stt as stt_pkg
     assert transcribe_probe(object()) == ""
+    seen = {}
+
+    class Fake:
+        def transcribe(self, audio, language=None, use_prompt=True, prompt=None):
+            seen.update(language=language, use_prompt=use_prompt)
+            return "ايه فرمت صفح", "ar"
+
+    monkeypatch.setattr(stt_pkg, "get_model", lambda: Fake())
+    assert transcribe_probe(AUDIO) == "ايه فرمت صفح" and seen == {"language": "ar", "use_prompt": False}
 
 
 def test_pending_audio_travels_with_the_pending_command():
@@ -107,4 +111,9 @@ def test_pending_audio_travels_with_the_pending_command():
         wakeword._pending_command, wakeword._pending_audio = "افتح المتصفح", AUDIO
     assert wakeword.get_pending_command() == "افتح المتصفح"
     assert wakeword.get_pending_audio() is AUDIO
-    assert wakeword.get_pending_audio() is None            # cleared after reading
+    assert wakeword.get_pending_audio() is None
+
+
+@pytest.mark.parametrize("answer", ["عيوة، ياس", "عيوه", "yas", "ياس"])
+def test_yes_variants_heard_in_a_real_session(answer):
+    assert parse_yes_no(answer) is True

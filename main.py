@@ -86,9 +86,7 @@ def _check_repeat_open(parsed, ask_yes_no):
     if not app or last is None or time.monotonic() - last > REPEAT_WINDOW_SEC:
         return parsed, False
     print(f"[Sound OS] ❓ {app} was opened {int(time.monotonic() - last)}s ago: did you mean CLOSE it?")
-    speak(f"{app} is already open. Do you want me to close it?", "en")
-    resp = ask_yes_no()
-    answer = parse_yes_no(resp if isinstance(resp, str) else (resp or {}).get("text", ""))
+    answer = _ask_close(app, ask_yes_no)
     if answer is True:
         return dict(parsed, intent="close_app"), False
     if answer is False:
@@ -99,12 +97,18 @@ def _check_repeat_open(parsed, ask_yes_no):
 
 
 # ---- "open" or "close"? -------------------------------------------------------------------------------
-# On unclear Arabic audio Whisper copies the FIRST verb of its prompt (see stt.PROBE_PROMPT_AR). So the clip is decoded
-# a second time with the close-first prompt. Same open/close answer twice = clear audio, go ahead. Different answers
-# = we really don't know -> ask ONE yes/no question (yes/no sound very different from افتح/اقفل).
-# SOUNDOS_PROBE=0 turns it off. Costs one extra decode, only for Arabic open/close commands.
-_OPEN_CLOSE = ("open_app", "close_app")
+# Whisper copies the FIRST verb of its prompt when the audio is unclear, so "اقفل المتصفح" comes out as "افتح المتصفح".
+# The clip is decoded again WITHOUT a prompt (garbled but honest); if that text gives no evidence for the heard verb
+# (intent_parser/verb_check.py) we ask ONE short yes/no question (yes/no sound nothing like افتح/اقفل).
+# SOUNDOS_PROBE=0 turns it off. Costs one extra (prompt-free) decode, only for Arabic open/close of a known app.
 _ARABIC = re.compile("[\u0600-\u06FF]")
+
+
+def _ask_close(app, ask_yes_no):
+    """One short question. True = close, False = open, None = unclear."""
+    speak(f"Close {app}? Yes or no.", "en")
+    resp = ask_yes_no()
+    return parse_yes_no(resp if isinstance(resp, str) else (resp or {}).get("text", ""))
 
 
 def _resolve_open_close(text, audio, ask_yes_no, probe=None):
@@ -112,31 +116,23 @@ def _resolve_open_close(text, audio, ask_yes_no, probe=None):
     if (os.environ.get("SOUNDOS_PROBE", "1") == "0" or ask_yes_no is None or audio is None
             or not text or not _ARABIC.search(text)):
         return text
+    from intent_parser.verb_check import verb_doubt, command_text, APP_NOUN
     first = parse(text)
-    if first["intent"] not in _OPEN_CLOSE:
+    app = first["params"].get("app")
+    if first["intent"] not in ("open_app", "close_app") or app not in APP_NOUN:
         return text
     try:
-        alt = (probe or transcribe_probe)(audio)
+        probe_text = (probe or transcribe_probe)(audio)
     except Exception:
         return text
-    if not alt:
-        return text
-    second = parse(alt)
-    if second["intent"] not in _OPEN_CLOSE or second["intent"] == first["intent"]:
-        return text                                               # both decodes agree: clear audio
-    a1, a2 = first["params"].get("app"), second["params"].get("app")
-    if a1 != a2 and "current" not in (a1, a2):
-        return text                                               # different apps: not an open/close doubt
-    close_text, open_text = (text, alt) if first["intent"] == "close_app" else (alt, text)
-    app = a1 if a1 != "current" else a2
-    print(f"[Sound OS] \u2753 Not sure if you said OPEN or CLOSE ({text!r} vs {alt!r}).")
-    speak(f"Did you want me to close {app}? Say yes to close it, or no to open it.", "en")
-    resp = ask_yes_no()
-    answer = parse_yes_no(resp if isinstance(resp, str) else (resp or {}).get("text", ""))
+    if not verb_doubt(first["intent"], app, probe_text):
+        return text                                               # the audio backs the heard verb
+    print(f"[Sound OS] \u2753 Not sure if you said OPEN or CLOSE {app} (heard {text!r}, prompt-free: {probe_text!r}).")
+    answer = _ask_close(app, ask_yes_no)
     if answer is True:
-        return close_text
+        return command_text("close_app", app)
     if answer is False:
-        return open_text
+        return command_text("open_app", app)
     print("[Sound OS] \u2753 No clear answer: doing nothing.")
     return ""
 

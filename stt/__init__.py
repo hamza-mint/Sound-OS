@@ -5,7 +5,7 @@ Exposes:
     SpeechToText (Mahmoud's core Whisper class)
 """
 import os
-from .stt import SpeechToText, SAMPLE_RATE, PROMPTS, PROBE_PROMPT_AR
+from .stt import SpeechToText, SAMPLE_RATE, PROMPTS
 from .textnorm import normalize
 from .run_live import Endpointer, SR
 
@@ -59,10 +59,10 @@ def transcribe(wav_path: str, lang_hint: str | None = None) -> dict:
 
 
 def transcribe_probe(audio_input) -> str:
-    """Second opinion on an Arabic clip, decoded with the close-first prompt (see PROBE_PROMPT_AR).
-    Returns the text, or "" on any problem. Never raises."""
+    """Prompt-FREE Arabic decode of a clip: garbled but honest. Used to check an open/close verb
+    (see intent_parser/verb_check.py). Returns the text, or "" on any problem. Never raises."""
     try:
-        text, _ = get_model().transcribe(audio_input, language="ar", prompt=PROBE_PROMPT_AR)
+        text, _ = get_model().transcribe(audio_input, language="ar", use_prompt=False)
         return text or ""
     except Exception:
         return ""
