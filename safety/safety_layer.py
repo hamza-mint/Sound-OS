@@ -55,7 +55,7 @@ class SafetyLayer:
 
         raw_dirs = self.config.get(
             "safe_directories",
-            ["~/Desktop", "~/Documents", "~/Downloads", "~/SoundOS_Files"]
+            ["~", "~/Desktop", "~/Documents", "~/Downloads", "~/SoundOS_Files"]
         )
         self.safe_directories = [os.path.abspath(os.path.expanduser(d)) for d in raw_dirs]
 

@@ -337,9 +337,9 @@ def test_duplicate_file_rejection():
     from executor import actions
     from pathlib import Path
 
-    SAFE_FILES_DIR = Path.home() / "SoundOS_Files"
-    SAFE_FILES_DIR.mkdir(parents=True, exist_ok=True)
-    test_file = SAFE_FILES_DIR / "duplicate_test.txt"
+    dest_dir = Path(os.environ.get("SOUNDOS_FILES_DIR", str(Path.home()))).expanduser()
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    test_file = dest_dir / "duplicate_test.txt"
 
     # Clean up first
     if test_file.exists():

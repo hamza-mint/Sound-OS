@@ -449,7 +449,7 @@ def open_directory(folder_path_str: str) -> Tuple[bool, str]:
 
 
 def create_user_file(filename: str = "new_file.txt") -> Tuple[bool, str]:
-    """Create a new empty file inside ~/SoundOS_Files/.
+    """Create a new empty file inside the user's home directory (~).
 
     Rejects if file already exists (no overwrite).
     """
@@ -460,15 +460,16 @@ def create_user_file(filename: str = "new_file.txt") -> Tuple[bool, str]:
     if "/" in filename or "\\" in filename or ".." in filename or os.path.isabs(filename):
         return False, "Invalid filename: path traversal is not permitted."
 
-    SAFE_FILES_DIR.mkdir(parents=True, exist_ok=True)
-    target_file = SAFE_FILES_DIR / clean_name
+    dest_dir = Path(os.environ.get("SOUNDOS_FILES_DIR", str(Path.home()))).expanduser()
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    target_file = dest_dir / clean_name
 
     if target_file.exists():
         return False, f"File '{clean_name}' already exists."
 
     try:
         target_file.touch(exist_ok=False)
-        return True, f"File '{clean_name}' created at {SAFE_FILES_DIR}."
+        return True, f"File '{clean_name}' created at {dest_dir}."
     except Exception as exc:
         return False, f"Failed to create file: {exc}"
 
@@ -476,14 +477,18 @@ def create_user_file(filename: str = "new_file.txt") -> Tuple[bool, str]:
 def delete_user_file(filename: str, dry_run: bool = False) -> Tuple[bool, str]:
     """
     Safely delete file by sending it to trash via gio trash.
-    Strictly sandboxed inside ~/SoundOS_Files/.
+    Checks the user's home directory (~), falling back to ~/SoundOS_Files/.
     """
     if not filename or "/" in filename or "\\" in filename or ".." in filename or os.path.isabs(filename):
         return False, "Invalid filename: path traversal is not permitted."
 
-    target_file = SAFE_FILES_DIR / filename
+    dest_dir = Path(os.environ.get("SOUNDOS_FILES_DIR", str(Path.home()))).expanduser()
+    target_file = dest_dir / filename
     if not target_file.exists():
-        return False, f"File '{filename}' does not exist in {SAFE_FILES_DIR}."
+        target_file = SAFE_FILES_DIR / filename
+
+    if not target_file.exists():
+        return False, f"File '{filename}' does not exist in {dest_dir}."
 
     if dry_run:
         return True, f"[DRY-RUN] Simulated trash deletion of {target_file}."

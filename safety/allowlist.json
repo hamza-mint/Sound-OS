@@ -92,6 +92,7 @@
     "gnome-control-center"
   ],
   "safe_directories": [
+    "~",
     "~/Desktop",
     "~/Documents",
     "~/Downloads",
