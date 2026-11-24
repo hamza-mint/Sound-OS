@@ -142,6 +142,14 @@ def _wait_openwakeword(model) -> bool:
         mic.close()
 
 
+_NOT_A_CALL_RE = re.compile(
+    r"^(?:said|says|told|tells|asked|thinks|is|was|wants|did|does|do not|don t|dont|never|not|"
+    r"قال|قالت|يقول|تقول|طلب|لا|مش|ما)\b"
+)
+_TALK_ABOUT_PREFIX_RE = re.compile(
+    r"^(?:قال|قالت|يقول|تقول|طلب|سمعت|بيقول|بتقول)\s+(?:ديف|دايف|داف)\b"
+)
+
 # --------------------------------------------------------------------------- #
 # Wake phrase detection via STT + Energy/Enter fallback
 # --------------------------------------------------------------------------- #
@@ -151,6 +159,10 @@ def _is_wake_word(text: str) -> bool:
         return False
     norm = text.lower().strip()
     clean = re.sub(r"[^\w\s\u0621-\u064A]", " ", norm)
+
+    # 0. Conversation ABOUT Dave (reporting verbs like 'قال ديف', 'Dave said') -> not a wake call
+    if _TALK_ABOUT_PREFIX_RE.search(clean):
+        return False
     words = clean.split()
 
     # 1. Custom wake word from env
@@ -197,27 +209,78 @@ def _is_wake_word(text: str) -> bool:
     return False
 
 
-_pending_command = None
-_pending_audio = None                  # the clip that produced _pending_command (main.py may need a 2nd opinion on it)
+DEFAULT_MAX_SECONDS = 2.2
+MIN_MAX_SECONDS, MAX_MAX_SECONDS = 0.8, 5.0
+
+
+def get_wake_max_seconds() -> float:
+    """Read SOUNDOS_WAKE_MAX_SECONDS on every call; invalid values fall back to 2.2."""
+    raw = os.environ.get("SOUNDOS_WAKE_MAX_SECONDS")
+    if raw is None or raw.strip() == "":
+        return DEFAULT_MAX_SECONDS
+    try:
+        val = float(raw)
+        if val != val or not (MIN_MAX_SECONDS <= val <= MAX_MAX_SECONDS):
+            return DEFAULT_MAX_SECONDS
+        return val
+    except Exception:
+        return DEFAULT_MAX_SECONDS
+
+
+PENDING_TTL_SECONDS = 5.0
+_pending_command = None      # (command_str, timestamp) | None
+_pending_audio = None        # (audio_arr, timestamp) | None
 _pending_lock = threading.Lock()
 
 
-def get_pending_audio():
-    """The audio (float32 array) behind the command returned by get_pending_command(), or None."""
-    global _pending_audio
+def set_pending(command: Optional[str], audio=None) -> None:
+    """Store pre-captured command with timestamp."""
+    global _pending_command, _pending_audio
     with _pending_lock:
-        audio = _pending_audio
-        _pending_audio = None
-        return audio
+        now = time.monotonic()
+        _pending_command = (command, now) if command else None
+        _pending_audio = (audio, now) if audio is not None else None
 
 
-def get_pending_command() -> Optional[str]:
-    """Retrieve and clear any command pre-captured during wake detection in a thread-safe way."""
+set_pending_command = set_pending
+
+
+def consume_pending(ttl: float = PENDING_TTL_SECONDS) -> Optional[str]:
+    """Retrieve and clear any command pre-captured during wake detection in a thread-safe way.
+    Expires if older than ttl seconds."""
     global _pending_command
     with _pending_lock:
+        if _pending_command is None:
+            return None
+        if isinstance(_pending_command, tuple) and len(_pending_command) == 2:
+            cmd, ts = _pending_command
+            _pending_command = None
+            if time.monotonic() - ts > ttl:
+                return None
+            return cmd
         cmd = _pending_command
         _pending_command = None
         return cmd
+
+
+get_pending_command = consume_pending
+
+
+def get_pending_audio(ttl: float = PENDING_TTL_SECONDS):
+    """The audio (float32 array) behind the command returned by get_pending_command(), or None."""
+    global _pending_audio
+    with _pending_lock:
+        if _pending_audio is None:
+            return None
+        if isinstance(_pending_audio, tuple) and len(_pending_audio) == 2:
+            audio, ts = _pending_audio
+            _pending_audio = None
+            if time.monotonic() - ts > ttl:
+                return None
+            return audio
+        audio = _pending_audio
+        _pending_audio = None
+        return audio
 
 
 def _extract_stt_text(res) -> str:
@@ -265,6 +328,8 @@ def _classify(text: str, full_decode=None):
     from intent_parser import parse
     if _is_wake_word(text):
         cmd = _strip_wake_word(text)
+        if cmd and _NOT_A_CALL_RE.match(cmd):
+            return ("needs_wake", ("talk_about_dave", text))
         return ("wake", cmd if cmd and parse(cmd)["intent"] != "unknown" else None)
     def verdict(cand):
         res = parse(cand)
@@ -371,10 +436,7 @@ def _wait_phrase_or_enter() -> bool:
                 silent_run = 0
 
             # Utterance finished on trailing silence (~360 ms, configurable) or max duration (~2.2 s)
-            try:
-                wake_max_sec = float(os.environ.get("SOUNDOS_WAKE_MAX_SECONDS", "2.2"))
-            except Exception:
-                wake_max_sec = 2.2
+            wake_max_sec = get_wake_max_seconds()
             max_frames = int(wake_max_sec * 1000 / BLOCK_MS)
             wake_silence_blocks = int(os.environ.get("SOUNDOS_WAKE_SILENCE_BLOCKS", "12"))
             if silent_run >= wake_silence_blocks or len(speech_frames) >= max_frames:
@@ -395,17 +457,13 @@ def _wait_phrase_or_enter() -> bool:
                             if kind == "wake":
                                 if payload:
                                     _log(f"Wake word + Command captured: '{text}' -> '{payload}' \U0001F680")
-                                    with _pending_lock:
-                                        _pending_command = payload
-                                        _pending_audio = audio_arr
+                                    set_pending(payload, audio_arr)
                                 else:
                                     _log(f"Wake word matched: '{text}' \u2705")
                                 return True
                             if kind == "direct":
                                 _log(f"Direct command captured: '{payload}' \U0001F680")
-                                with _pending_lock:
-                                    _pending_command = payload
-                                    _pending_audio = audio_arr
+                                set_pending(payload, audio_arr)
                                 return True
                             if kind == "needs_wake":
                                 _log(f"Heard '{payload[1]}' ({payload[0]}) - say 'Hey Dave' first for this one.")

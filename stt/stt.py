@@ -47,6 +47,13 @@ MIN_SECONDS = 0.3      # shorter than this -> ignore
 MAX_WORDS_PER_SECOND = 2.5   # generous for isolated spoken commands; see trim_to_speech
 
 
+_HALLUCINATIONS = (
+    "thanks for watching", "thank you for watching", "subtitles by", "amara org", "please subscribe",
+    "like and subscribe", "شكرا للمشاهده", "شكرا لمشاهدتكم", "شكرا علي المشاهده", "اشتركوا في القناه",
+    "اشترك في القناه", "ترجمه نانسي قنقر",
+)
+
+
 class SpeechToText:
     def __init__(self, model_size="tiny", cpu_threads=0):
         """model_size: tiny | base | small | medium.
@@ -107,6 +114,14 @@ class SpeechToText:
         """True if the text contains Greek/Cyrillic/Hebrew/Indic/Thai/Chinese/Japanese/Korean letters. Whisper writes
         those when it hallucinates on noise (real log: '還不算是'); a command is only Arabic or Latin."""
         return bool(_FOREIGN_SCRIPT.search(text))
+
+    @staticmethod
+    def is_hallucination(text):
+        """True if the text contains common YouTube/subtitle artifacts that Whisper hallucinates on noise."""
+        if not text:
+            return False
+        norm = text.lower().replace("ة", "ه").replace("ى", "ي").strip()
+        return any(h in norm for h in _HALLUCINATIONS)
 
     @staticmethod
     def dedupe_repeats(text):
@@ -170,9 +185,7 @@ class SpeechToText:
         )
         # `segments` is a generator: the real decoding happens in this line
         text = " ".join(s.text.strip() for s in segments).strip()
-        if self._is_repetitive(text):
-            text = ""
-        elif text and self.has_foreign_script(text):
+        if self._is_repetitive(text) or self.has_foreign_script(text) or self.is_hallucination(text):
             text = ""
         elif text:
             text = self.trim_to_speech(self.dedupe_repeats(text), self.voiced_seconds(audio))
@@ -234,7 +247,7 @@ class SpeechToText:
             vad_parameters=dict(min_speech_duration_ms=200, min_silence_duration_ms=100),
         )
         text = " ".join(s.text.strip() for s in segments).strip()
-        if self._is_repetitive(text) or self.has_foreign_script(text):
+        if self._is_repetitive(text) or self.has_foreign_script(text) or self.is_hallucination(text):
             text = ""
         lang = info.language if info and info.language in ALLOWED_LANGS else "en"
         return text, lang
