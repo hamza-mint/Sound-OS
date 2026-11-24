@@ -121,7 +121,7 @@ CLOSE = V("اقفل", "قفل", "تقفل", "سكر", "تسكر", "اغلق", "�
 PLAY = V("شغل", "تشغل", "اسمع", "سمعني", "تسمعني", "play", "put on", "listen to")
 SEARCH = V("ابحث", "تبحث", "دور", "تدور", "سيرش", "بحث", "search", "google", "look up", "lookup")
 SEND_MSG = W("ارسل", "ارسللي", "ابعت", "ابعتلي", "ابعث", "ابعثلي", "وصل", "send", "message", "text")
-MAKE = W("اعمل", "اعملي", "اعمللي", "عمل", "تعمل", "انشي", "انشاء", "كريت", "كريد", "كرييت",
+MAKE = W("اعمل", "اعملي", "اعمللي", "عمل", "تعمل", "انشي", "انشاء", "كريت", "كريد", "كرييت", "كريات",
          "قريد", "قريت", "قريط", "اصنع", "جهز", "create", "make", "new", "generate")
 DEL = W("امسح", "احذف", "حذف", "مسح", "شيل", "ازل", "تمسح", "تحذف", "delete", "remove", "erase", "trash")
 FILE = r"\b(?:ال)?(?:ملف|ملفات|فايل|file|files|document|مستند|وثيقه|sheet|شيت|spreadsheet|script|سكريبت)\b"
@@ -143,7 +143,7 @@ _TYPE_EXT = {
     "text": ".txt", "txt": ".txt", "تيكست": ".txt", "تكست": ".txt", "نصي": ".txt", "نص": ".txt",
     "markdown": ".md", "md": ".md", "ماركداون": ".md",
     "powerpoint": ".pptx", "بوربوينت": ".pptx", "presentation": ".pptx",
-    "json": ".json", "جيسون": ".json",
+    "json": ".json", "جيسون": ".json", "جيسن": ".json", "جيس": ".json", "جسون": ".json", "jason": ".json",
     "csv": ".csv",
     "html": ".html",
     "css": ".css",
@@ -509,13 +509,16 @@ def _prepare(raw):
     t = re.sub(r"\s*\b(?:dot|\.)\s*(?:dxt|txt)\b", ".txt", t)
     t = re.sub(r"\.(?:dxt|d\s*xt)\b", ".txt", t)
     t = re.sub(r"(?:\s*\b(?:dot|نقطه)\s*|\s*\.\s*)(?:pi|pie)\b", ".py", t)
-    # Spoken English "create python file" misheard by Whisper in Arabic/English
+    # Spoken English "create python/word/json file" misheard by Whisper in Arabic/English
     t = re.sub(r"\b(?:bison|by\s*some|pyson|pysan)\s*files?\b", "python file", t)
     t = re.sub(r"\b(?:bison|by\s*some|pyson|pysan)\b", "python", t)
-    t = re.sub(r"\b(?:بيسون|بايسون|بيشن|بيثون)\b", "python", t)
-    t = re.sub(r"\b(?:فائل|فايل)\b", "file", t)
+    t = re.sub(r"\b(?:باي\s*سنفايل|سنفايل)\b", "python file", t)
+    t = re.sub(r"\b(?:بلسن|باي\s*سن|بيسون|بايسون|بيشن|بيثون)\b", "python", t)
+    t = re.sub(r"\b(?:وردفايي|وردفاي|وردفايل)\b", "word file", t)
+    t = re.sub(r"\bjason\s+fail\b", "json file", t)
+    t = re.sub(r"\b(?:فايل|فايي|فاي)\b", "file", t)
     t = re.sub(
-        r"\b(?:قريه|تريد)\s+(?=(?:python|file|ملف|ملفات|جيسون|وورد|ورد|اكسل|تيكست|تكست|json|word|excel|text)\b)",
+        r"\b(?:كريات|قريه|تريد)\s+(?=(?:python|json|جيس|جيسن|جيسون|file|ملف|ملفات|وورد|ورد|اكسل|تيكست|تكست|word|excel|text)\b)",
         "create ",
         t,
     )

@@ -21,6 +21,71 @@ def get_model(model_size: str = "tiny", cpu_threads: int = 0) -> SpeechToText:
     return _model_instance
 
 
+def _has_prompt_evidence(matched_clauses: list[str], probe_norm: str) -> bool:
+    """True if prompt-free audio shares a 3-char stem/suffix with any content word of each matched prompt clause."""
+    if not probe_norm:
+        return False
+    probe_words = [w.removeprefix("ال") for w in probe_norm.split() if w]
+    for clause in matched_clauses:
+        content = [w.removeprefix("ال") for w in clause.split() if len(w.removeprefix("ال")) >= 3]
+        if content and not any(
+            (cw[:3] in bw or cw[-3:] in bw)
+            for cw in content
+            for bw in probe_words
+        ):
+            return False
+    return True
+
+
+def _verify_ar_prompt(model: SpeechToText, wav_path: str, text: str, prompt_clauses: list[str]):
+    """Return (verified_text, probe_text). Blanks `text` if it echoes PROMPTS['ar'] without audio backing."""
+    from intent_parser.normalize import normalize as norm_ar
+
+    norm_text = norm_ar(text)
+    matched = [pc for pc in prompt_clauses if pc in norm_text]
+    if not matched and not any(p in text for p in ["اقفل،", "سكر", "المتصفح الصوت", "انشئ ملفات"]):
+        return text, None
+    probe_text, _ = model.transcribe(wav_path, language="ar", use_prompt=False)
+    if matched and not _has_prompt_evidence(matched, norm_ar(probe_text)):
+        return "", probe_text
+    return text, probe_text
+
+
+def _recover_transcript(model: SpeechToText, wav_path: str, text: str, lang: str):
+    """Verify Arabic prompt phrases against a prompt-free decode and recover English/Arabic mis-detections."""
+    from intent_parser import parse
+    from intent_parser.normalize import normalize as norm_ar
+
+    prompt_clauses = [norm_ar(c.strip()) for c in PROMPTS["ar"].split("،") if c.strip() and c.strip() != "ديف"]
+    probe_text = None
+
+    if text and lang == "ar":
+        text, probe_text = _verify_ar_prompt(model, wav_path, text, prompt_clauses)
+
+    is_unknown = not text or parse(text).get("intent") == "unknown"
+    is_suspicious_leak = bool(text and lang == "ar" and any(p in text for p in ["اقفل،", "سكر", "المتصفح الصوت", "انشئ ملفات"]))
+    if not (is_unknown or is_suspicious_leak):
+        return text, lang
+
+    other_lang = "en" if lang == "ar" else "ar"
+    other_text, other_l = model.transcribe(wav_path, language=other_lang)
+    if other_text and other_l == "ar":
+        other_text, ar_probe = _verify_ar_prompt(model, wav_path, other_text, prompt_clauses)
+        if probe_text is None and ar_probe is not None:
+            probe_text = ar_probe
+
+    # Prefer prompt-free probe if it already yields a valid non-prompt intent
+    if probe_text and parse(probe_text).get("intent") != "unknown":
+        return probe_text, "ar"
+    if other_text and parse(other_text).get("intent") != "unknown":
+        return other_text, other_l
+    # Fallback: prompt-free decode in the originally detected language
+    lang_probe, _ = model.transcribe(wav_path, language=lang, use_prompt=False)
+    if lang_probe and parse(lang_probe).get("intent") != "unknown":
+        return lang_probe, lang
+    return text, lang
+
+
 def transcribe(wav_path: str, lang_hint: str | None = None) -> dict:
     """WAV file -> {"text": str, "lang": "ar" | "en", "confidence": 0..1}.
 
@@ -31,20 +96,11 @@ def transcribe(wav_path: str, lang_hint: str | None = None) -> dict:
         model = get_model()
         text, lang = model.transcribe(wav_path, language=lang_hint)
 
-        # Cross-language recovery: if auto-detect produced an unrecognized intent,
-        # or if text is empty (e.g. filtered hallucination), or contains suspicious prompt leakage,
-        # test the alternative language (en/ar) to recover accented/English commands (e.g. "create file.md")
+        # Cross-language & prompt-echo recovery: verify prompt-matched Arabic output against
+        # prompt-free audio and try the alternative language when accented/English commands fail.
         if lang_hint is None:
             try:
-                from intent_parser import parse
-                is_unknown = not text or parse(text).get("intent") == "unknown"
-                is_suspicious_leak = bool(text and lang == "ar" and any(p in text for p in ["اقفل،", "سكر", "المتصفح الصوت", "انشئ ملفات"]))
-                if is_unknown or is_suspicious_leak:
-                    other_lang = "en" if lang == "ar" else "ar"
-                    other_text, other_l = model.transcribe(wav_path, language=other_lang)
-                    if other_text and parse(other_text).get("intent") != "unknown":
-                        text = other_text
-                        lang = other_l
+                text, lang = _recover_transcript(model, wav_path, text, lang)
             except Exception:
                 pass
 

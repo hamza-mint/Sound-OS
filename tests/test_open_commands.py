@@ -78,6 +78,11 @@ def test_create_file(phrase, name):
     ("Create by some file,", "new_file.py"),
     ("Create word file, hamzaq.", "hamzaq.docx"),
     ("Create JSON file, hamza.", "hamza.json"),
+    ("كريات جيسٌ فائل حمز", "حمز.json"),
+    ("كريد بلسن فائل حمصة", "حمصه.py"),
+    ("وردفائي الحمزك", "الحمزك.docx"),
+    ("كريد باي سنفائل،", "new_file.py"),
+    ("Jason Fail Hamzen.", "hamzen.json"),
     # "file.ext" (the word "file" IS the filename) and spoken dot/phonetic variants
     ("create file.txt", "file.txt"),
     ("create file.py", "file.py"),

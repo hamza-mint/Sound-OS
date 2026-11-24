@@ -162,3 +162,33 @@ def test_decode_drops_high_no_speech_prob_hallucination():
     audio = (0.01 * np.sin(2 * np.pi * 200 * t)).astype(np.float32)
     text, _ = make_stt(HighNoSpeechModel()).transcribe(audio, language="ar")
     assert text == ""
+
+
+def test_stt_rejects_prompt_echo_and_recovers_prompt_free_intent(monkeypatch):
+    import stt as stt_pkg
+
+    class EchoModel:
+        def transcribe(self, audio, language=None, use_prompt=True, prompt=None):
+            if not use_prompt and language == "ar":
+                return "كريد بلسن فائل حمصة", "ar"
+            if language == "en":
+                return "Create version file Hamso.", "en"
+            return "وطي الإضاءة، افتح المتصفح.", "ar"
+
+    monkeypatch.setattr(stt_pkg, "get_model", lambda: EchoModel())
+    out = stt_pkg.transcribe("dummy.wav")
+    assert out["text"] == "كريد بلسن فائل حمصة"
+
+
+def test_stt_keeps_real_arabic_prompt_command_when_probe_backs_it(monkeypatch):
+    import stt as stt_pkg
+
+    class RealArabicModel:
+        def transcribe(self, audio, language=None, use_prompt=True, prompt=None):
+            if not use_prompt and language == "ar":
+                return "افتح مصفة", "ar"
+            return "افتح المتصفح،", "ar"
+
+    monkeypatch.setattr(stt_pkg, "get_model", lambda: RealArabicModel())
+    out = stt_pkg.transcribe("dummy.wav")
+    assert out["text"] == "افتح المتصفح،"
