@@ -121,10 +121,10 @@ CLOSE = V("اقفل", "قفل", "تقفل", "سكر", "تسكر", "اغلق", "�
 PLAY = V("شغل", "تشغل", "اسمع", "سمعني", "تسمعني", "play", "put on", "listen to")
 SEARCH = V("ابحث", "تبحث", "دور", "تدور", "سيرش", "بحث", "search", "google", "look up", "lookup")
 SEND_MSG = W("ارسل", "ارسللي", "ابعت", "ابعتلي", "ابعث", "ابعثلي", "وصل", "send", "message", "text")
-MAKE = W("اعمل", "اعملي", "اعمللي", "عمل", "تعمل", "انشي", "انشاء", "كريت", "اصنع", "جهز",
-         "create", "make", "new", "generate")
+MAKE = W("اعمل", "اعملي", "اعمللي", "عمل", "تعمل", "انشي", "انشاء", "كريت", "كريد", "كرييت",
+         "قريد", "قريت", "قريط", "اصنع", "جهز", "create", "make", "new", "generate")
 DEL = W("امسح", "احذف", "حذف", "مسح", "شيل", "ازل", "تمسح", "تحذف", "delete", "remove", "erase", "trash")
-FILE = r"\b(?:ال)?(?:ملف|فايل|file|document|مستند|وثيقه|sheet|شيت|spreadsheet|script|سكريبت)\b"
+FILE = r"\b(?:ال)?(?:ملف|ملفات|فايل|file|files|document|مستند|وثيقه|sheet|شيت|spreadsheet|script|سكريبت)\b"
 
 # Known file extensions for detecting bare filenames like "create hamza.txt"
 _KNOWN_EXT = frozenset({
@@ -154,9 +154,9 @@ _TYPE_EXT = {
 }
 # Filler words stripped AFTER a type keyword is consumed
 _TYPE_FILLER = {N(w) for w in [
-    "file", "ملف", "فايل", "document", "مستند", "وثيقه", "sheet", "شيت",
+    "file", "files", "ملف", "ملفات", "فايل", "document", "مستند", "وثيقه", "sheet", "شيت",
     "script", "سكريبت", "spreadsheet", "new", "جديد", "جديده", "empty", "فاضي", "فاضيه",
-    "a", "an", "the", "named", "called", "اسمه", "اسمها", "باسم",
+    "a", "an", "the", "named", "called", "اسمه", "اسمها", "باسم", "في",
 ]}
 FOLDER_WORD = W("مجلد", "فولدر", "folder", "directory")
 DEVICE = W("جهاز", "الجهاز", "كمبيوتر", "الكمبيوتر", "لابتوب", "اللابتوب", "حاسوب", "الحاسوب",
@@ -291,6 +291,7 @@ def r_create_file(t):
             if not m_make and not re.search(r"\b(?:sheet|شيت|file|ملف|فايل|document|مستند|جدول)\b", after):
                 continue
             rest = re.sub(pat_kw, " ", after, count=1)
+            rest = re.sub(r"\bفي\s+ال(?=\w)", " ", rest)     # Whisper hears "file <name>" as "في ال<name>"
             for fw in _TYPE_FILLER:
                 rest = re.sub(r"\b" + re.escape(fw) + r"\b", " ", rest)
             name = _clean_name(re.sub(r"\s+", " ", rest).strip())
@@ -508,6 +509,16 @@ def _prepare(raw):
     t = re.sub(r"\s*\b(?:dot|\.)\s*(?:dxt|txt)\b", ".txt", t)
     t = re.sub(r"\.(?:dxt|d\s*xt)\b", ".txt", t)
     t = re.sub(r"(?:\s*\b(?:dot|نقطه)\s*|\s*\.\s*)(?:pi|pie)\b", ".py", t)
+    # Spoken English "create python file" misheard by Whisper in Arabic/English
+    t = re.sub(r"\b(?:bison|by\s*some|pyson|pysan)\s*files?\b", "python file", t)
+    t = re.sub(r"\b(?:bison|by\s*some|pyson|pysan)\b", "python", t)
+    t = re.sub(r"\b(?:بيسون|بايسون|بيشن|بيثون)\b", "python", t)
+    t = re.sub(r"\b(?:فائل|فايل)\b", "file", t)
+    t = re.sub(
+        r"\b(?:قريه|تريد)\s+(?=(?:python|file|ملف|ملفات|جيسون|وورد|ورد|اكسل|تيكست|تكست|json|word|excel|text)\b)",
+        "create ",
+        t,
+    )
     # Egyptian Arabic spoken mishearings for excel/sheet commands
     t = re.sub(r"\b(?:ام\s*اللي|املي|ملي|امل)\b", "اعملي", t)
     t = re.sub(r"\b(?:الشيط|شيط|شيث|شد)\b", "شيت", t)

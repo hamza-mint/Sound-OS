@@ -71,6 +71,13 @@ def test_create_file(phrase, name):
     ("create json file config", "config.json"),
     ("create csv file data", "data.csv"),
     ("اعمل ملف نصي hamza", "hamza.txt"),
+    # Real-session Whisper mishearings for "create python/word/json file"
+    ("قرية بيسون فائل.", "new_file.py"),
+    ("قريد بيسون في الحمزة.", "حمزه.py"),
+    ("Create BisonFile.", "new_file.py"),
+    ("Create by some file,", "new_file.py"),
+    ("Create word file, hamzaq.", "hamzaq.docx"),
+    ("Create JSON file, hamza.", "hamza.json"),
     # "file.ext" (the word "file" IS the filename) and spoken dot/phonetic variants
     ("create file.txt", "file.txt"),
     ("create file.py", "file.py"),
@@ -103,6 +110,8 @@ def test_create_file_extended(phrase, name):
 
 def test_the_new_bare_folder_and_verb_repair_rules_do_not_steal_other_commands():
     assert parse("play music")["intent"] == "play_media"         # not "open the music folder"
+    assert parse("انشئ ملفات")["intent"] == "create_file"       # not open_app(files)
+    assert parse("open files")["intent"] == "open_app"
     assert parse("volume down")["intent"] == "volume_down"
     assert parse("hoping for the best")["intent"] == "unknown"
     assert parse("opening hours")["intent"] == "unknown"

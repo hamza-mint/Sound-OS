@@ -38,7 +38,7 @@ def transcribe(wav_path: str, lang_hint: str | None = None) -> dict:
             try:
                 from intent_parser import parse
                 is_unknown = not text or parse(text).get("intent") == "unknown"
-                is_suspicious_leak = bool(text and lang == "ar" and any(p in text for p in ["اقفل،", "سكر", "المتصفح الصوت"]))
+                is_suspicious_leak = bool(text and lang == "ar" and any(p in text for p in ["اقفل،", "سكر", "المتصفح الصوت", "انشئ ملفات"]))
                 if is_unknown or is_suspicious_leak:
                     other_lang = "en" if lang == "ar" else "ar"
                     other_text, other_l = model.transcribe(wav_path, language=other_lang)
