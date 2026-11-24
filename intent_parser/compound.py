@@ -20,6 +20,7 @@ _CONJUNCTION_PATTERNS = [
     r"\s+و(?!(?:اتس|اطي|ريني|ثائق|احد|سط)\b)(?=[\u0621-\u064A])",  # Arabic 'و' attached to following word without eating words starting with و
     r"\s+و\s+",                  # Standalone Arabic 'و'
     r"\s+and\s+",                # English 'and'
+    r"\s*[،,;؛]\s*",             # Comma / semicolon separating distinct actions
 ]
 
 
@@ -41,7 +42,7 @@ def split_compound(text: str) -> List[str]:
         for pat in _CONJUNCTION_PATTERNS:
             parts = re.split(pat, clean)
             if len(parts) > 1:
-                subparts = [p.strip() for p in parts if p.strip()]
+                subparts = [p.strip(" \t\n\r،,;؛.") for p in parts if p.strip(" \t\n\r،,;؛.")]
                 if len(subparts) > 1:
                     # Recursively verify each subpart
                     valid = True
@@ -50,6 +51,7 @@ def split_compound(text: str) -> List[str]:
                         # If a subpart itself contains further conjunctions, resolve it
                         sub_resolved = split_compound(sp) if any(re.search(p, sp) for p in _CONJUNCTION_PATTERNS) else [sp]
                         for item in sub_resolved:
+                            item = item.strip(" \t\n\r،,;؛.")
                             p_res = parse(item)
                             if p_res.get("intent") == "unknown":
                                 valid = False
@@ -59,7 +61,7 @@ def split_compound(text: str) -> List[str]:
                             break
                     if valid and len(collected) > 1:
                         return collected
-        return [clean]
+        return [clean.strip(" \t\n\r،,;؛.")]
     except Exception:
         return [text] if isinstance(text, str) else [""]
 

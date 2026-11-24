@@ -42,6 +42,7 @@ def test_create_file(phrase, name):
 @pytest.mark.parametrize("phrase,name", [
     # bare filename with known extension (no "file" word needed)
     ("create hamza.txt", "hamza.txt"),
+    ("Create Hamza.dxt", "hamza.txt"),
     ("create script.py", "script.py"),
     ("create readme.md", "readme.md"),
     ("create report.docx", "report.docx"),
@@ -51,6 +52,7 @@ def test_create_file(phrase, name):
     ("new config.json", "config.json"),
     # type keywords → default extension
     ("create excel sheet", "new_file.xlsx"),
+    ("excel sheet", "new_file.xlsx"),
     ("create word document", "new_file.docx"),
     ("create python file", "new_file.py"),
     ("create markdown file", "new_file.md"),
@@ -69,6 +71,13 @@ def test_create_file(phrase, name):
     ("اعمل ملف اكسل بيانات", "بيانات.xlsx"),
     ("اعمل شيت بيانات", "بيانات.xlsx"),
     ("اعمل ملف بايثون", "new_file.py"),
+    # Whisper phonetic variations from real sessions
+    ("اعمل الشيط أكسال،", "new_file.xlsx"),
+    ("ملي شيط إكسل", "new_file.xlsx"),
+    ("امل شد اكسل", "new_file.xlsx"),
+    ("ام اللي شد اكسل", "new_file.xlsx"),
+    ("شد أكسل،", "new_file.xlsx"),
+    ("شيت إكسل", "new_file.xlsx"),
 ])
 def test_create_file_extended(phrase, name):
     out = parse(phrase)

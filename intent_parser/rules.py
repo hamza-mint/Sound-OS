@@ -268,13 +268,13 @@ def r_volume(t):
 
 def r_create_file(t):
     m_make = re.search(MAKE, t)
-    if not m_make:
-        return None
-    after = t[m_make.end():].strip()
+    after = t[m_make.end():].strip() if m_make else t.strip()
 
     # Path 1: type keyword (excel/word/python/markdown…) → default extension
     for kw, ext in sorted(_TYPE_EXT.items(), key=lambda x: len(x[0]), reverse=True):
         if re.search(r"\b" + re.escape(kw) + r"\b", after):
+            if not m_make and not re.search(r"\b(?:sheet|شيت|file|ملف|فايل|document|مستند|جدول)\b", after):
+                continue
             rest = re.sub(r"\b" + re.escape(kw) + r"\b", " ", after, count=1)
             for fw in _TYPE_FILLER:
                 rest = re.sub(r"\b" + re.escape(fw) + r"\b", " ", rest)
@@ -284,6 +284,9 @@ def r_create_file(t):
             elif not name:
                 name = "new_file" + ext
             return ("create_file", {"name": name})
+
+    if not m_make:
+        return None
 
     # Path 2: MAKE + FILE/document word + optional name
     m = re.search(FILE, after)
@@ -479,6 +482,14 @@ def _prepare(raw):
     t = re.sub(r"\b(?:او\s*بنكا|او\s*بن|اوبن)\b", "open", t)
     t = re.sub(r"\b(?:لكو\s*ليتر|كالكو\s*ليتر|كلكوليتر|كالكيوليتر)\b", "calculator", t)
     t = re.sub(r"\b(?:براوزر|البراوزر)\b", "browser", t)
+
+    # Acoustic Whisper mishearings: "dot txt" transcribed as ".dxt"
+    t = re.sub(r"\s*\b(?:dot|\.)\s*(?:dxt|txt)\b", ".txt", t)
+    t = re.sub(r"\.(?:dxt|d\s*xt)\b", ".txt", t)
+    # Egyptian Arabic spoken mishearings for excel/sheet commands
+    t = re.sub(r"\b(?:ام\s*اللي|املي|ملي|امل)\b", "اعملي", t)
+    t = re.sub(r"\b(?:الشيط|شيط|شيث|شد)\b", "شيت", t)
+    t = re.sub(r"\b(?:اكسال|اكسيل|إكسيل|إكسال)\b", "اكسل", t)
 
     # NOTE: We previously had a _repair_whisper_close_open_mishearing() function here
     # that tried to convert "افتح المتصفح" -> "اقفل المتصفح" assuming Whisper mishears
