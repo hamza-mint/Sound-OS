@@ -39,6 +39,42 @@ def test_create_file(phrase, name):
     assert (out["intent"], out["params"]) == ("create_file", {"name": name})
 
 
+@pytest.mark.parametrize("phrase,name", [
+    # bare filename with known extension (no "file" word needed)
+    ("create hamza.txt", "hamza.txt"),
+    ("create script.py", "script.py"),
+    ("create readme.md", "readme.md"),
+    ("create report.docx", "report.docx"),
+    ("create data.csv", "data.csv"),
+    ("create main.py", "main.py"),
+    ("make todo.txt", "todo.txt"),
+    ("new config.json", "config.json"),
+    # type keywords → default extension
+    ("create excel sheet", "new_file.xlsx"),
+    ("create word document", "new_file.docx"),
+    ("create python file", "new_file.py"),
+    ("create markdown file", "new_file.md"),
+    # type keyword + custom name → name.ext
+    ("create excel sheet budget", "budget.xlsx"),
+    ("create word document report", "report.docx"),
+    ("create python file test", "test.py"),
+    # "file.ext" (the word "file" IS the filename)
+    ("create file.txt", "file.txt"),
+    ("create file.py", "file.py"),
+    ("create file.md", "file.md"),
+    # document/sheet/script as generic FILE word
+    ("create document notes.docx", "notes.docx"),
+    ("create script test.py", "test.py"),
+    # Arabic with type keywords
+    ("اعمل ملف اكسل بيانات", "بيانات.xlsx"),
+    ("اعمل شيت بيانات", "بيانات.xlsx"),
+    ("اعمل ملف بايثون", "new_file.py"),
+])
+def test_create_file_extended(phrase, name):
+    out = parse(phrase)
+    assert (out["intent"], out["params"]) == ("create_file", {"name": name})
+
+
 def test_the_new_bare_folder_and_verb_repair_rules_do_not_steal_other_commands():
     assert parse("play music")["intent"] == "play_media"         # not "open the music folder"
     assert parse("volume down")["intent"] == "volume_down"

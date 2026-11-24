@@ -124,7 +124,31 @@ SEND_MSG = W("ارسل", "ارسللي", "ابعت", "ابعتلي", "ابعث",
 MAKE = W("اعمل", "اعملي", "اعمللي", "عمل", "تعمل", "انشي", "انشاء", "كريت", "اصنع", "جهز",
          "create", "make", "new", "generate")
 DEL = W("امسح", "احذف", "حذف", "مسح", "شيل", "ازل", "تمسح", "تحذف", "delete", "remove", "erase", "trash")
-FILE = r"\b(?:ال)?(?:ملف|فايل|file)\b"
+FILE = r"\b(?:ال)?(?:ملف|فايل|file|document|مستند|وثيقه|sheet|شيت|spreadsheet|script|سكريبت)\b"
+
+# Known file extensions for detecting bare filenames like "create hamza.txt"
+_KNOWN_EXT = frozenset({
+    "txt", "py", "md", "csv", "json", "xml", "html", "htm", "css", "js", "ts",
+    "sh", "yml", "yaml", "toml", "cfg", "ini", "log", "sql", "rb", "rs", "go",
+    "java", "c", "cpp", "h", "hpp", "docx", "xlsx", "pptx", "pdf", "doc",
+    "xls", "ppt", "rtf",
+})
+_HAS_EXT = re.compile(r"\.(" + "|".join(sorted(_KNOWN_EXT, key=len, reverse=True)) + r")$", re.I)
+
+# "create excel sheet data" → data.xlsx; keys are NORMALIZED forms
+_TYPE_EXT = {
+    "excel": ".xlsx", "اكسل": ".xlsx", "spreadsheet": ".xlsx", "sheet": ".xlsx", "شيت": ".xlsx",
+    "word": ".docx", "وورد": ".docx",
+    "python": ".py", "بايثون": ".py",
+    "markdown": ".md",
+    "powerpoint": ".pptx", "بوربوينت": ".pptx", "presentation": ".pptx",
+}
+# Filler words stripped AFTER a type keyword is consumed
+_TYPE_FILLER = {N(w) for w in [
+    "file", "ملف", "فايل", "document", "مستند", "وثيقه", "sheet", "شيت",
+    "script", "سكريبت", "spreadsheet", "new", "جديد", "جديده",
+    "a", "an", "the", "named", "called", "اسمه", "اسمها", "باسم",
+]}
 FOLDER_WORD = W("مجلد", "فولدر", "folder", "directory")
 DEVICE = W("جهاز", "الجهاز", "كمبيوتر", "الكمبيوتر", "لابتوب", "اللابتوب", "حاسوب", "الحاسوب",
            "السيستم", "سيستم", "النظام", "computer", "pc", "laptop", "system", "machine")
@@ -243,11 +267,44 @@ def r_volume(t):
 
 
 def r_create_file(t):
-    m = re.search(MAKE + r".*?" + FILE, t)
-    if not m:
+    m_make = re.search(MAKE, t)
+    if not m_make:
         return None
-    name = _clean_name(t[m.end():])
-    return ("create_file", {"name": name} if name else {})
+    after = t[m_make.end():].strip()
+
+    # Path 1: type keyword (excel/word/python/markdown…) → default extension
+    for kw, ext in sorted(_TYPE_EXT.items(), key=lambda x: len(x[0]), reverse=True):
+        if re.search(r"\b" + re.escape(kw) + r"\b", after):
+            rest = re.sub(r"\b" + re.escape(kw) + r"\b", " ", after, count=1)
+            for fw in _TYPE_FILLER:
+                rest = re.sub(r"\b" + re.escape(fw) + r"\b", " ", rest)
+            name = _clean_name(re.sub(r"\s+", " ", rest).strip())
+            if name and not _HAS_EXT.search(name):
+                name += ext
+            elif not name:
+                name = "new_file" + ext
+            return ("create_file", {"name": name})
+
+    # Path 2: MAKE + FILE/document word + optional name
+    m = re.search(FILE, after)
+    if m:
+        rest = after[m.end():]
+        # "file" consumed from "file.txt" → reconstruct the full filename
+        if rest.startswith("."):
+            tok = rest.split()[0]                       # ".txt" or ".py …"
+            ext_part = tok[1:]                           # "txt"
+            if ext_part.lower() in _KNOWN_EXT:
+                matched = after[m.start():m.end()]
+                return ("create_file", {"name": matched + tok})
+        name = _clean_name(rest)
+        return ("create_file", {"name": name} if name else {})
+
+    # Path 3: bare filename with known extension (e.g., "create hamza.txt")
+    name = _clean_name(after)
+    if name and _HAS_EXT.search(name):
+        return ("create_file", {"name": name})
+
+    return None
 
 
 def r_open_folder(t):

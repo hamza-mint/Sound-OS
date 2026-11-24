@@ -217,7 +217,11 @@ Sound OS supports hundreds of command variants across English and Arabic. Below 
 | **افتح التنزيلات** / **افتح التحميلات** | `open downloads` | Open Downloads folder |
 | **افتح المستندات** | `open documents` | Open Documents folder |
 | **اعرض الصور** / **افتح مجلد الصور** | `open pictures` | Open Pictures folder |
-| **اعمل ملف باسم notes.txt** | `create file notes.txt` | Create new text file in workspace |
+| **اعمل ملف باسم notes.txt** / **انشئ hamza.txt** | `create hamza.txt` / `create file.txt` / `create file.py` | Create file directly with extension in `~/SoundOS_Files/` |
+| **اعمل شيت اكسل** / **اعمل شيت بيانات** | `create excel sheet` / `create excel sheet budget` | Create spreadsheet (`.xlsx`) |
+| **اعمل ملف وورد** / **اعمل مستند تقرير** | `create word document` / `create word document report` | Create document (`.docx`) |
+| **اعمل ملف بايثون** / **انشئ سكريبت test** | `create python file` / `create python script test` | Create Python script (`.py`) |
+| **اعمل ملف ماركداون** | `create markdown file readme.md` | Create Markdown file (`.md`) |
 
 ### 5. Search & Messaging
 | Arabic Command | English Command | Action |
