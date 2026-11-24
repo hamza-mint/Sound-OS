@@ -56,6 +56,12 @@ def split_compound(text: str) -> List[str]:
                             if p_res.get("intent") == "unknown":
                                 valid = False
                                 break
+                            # Safety guard: if splitting on a punctuation mark (comma/semicolon),
+                            # reject the split if any subpart is a bare close_app (app="current", e.g. "اقفل" or "سكر")
+                            # Bare close of current active window is destructive and never a legitimate comma-chained command.
+                            if pat == r"\s*[،,;؛]\s*" and p_res.get("intent") == "close_app" and p_res.get("params", {}).get("app") == "current":
+                                valid = False
+                                break
                             collected.append(item)
                         if not valid:
                             break

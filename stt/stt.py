@@ -26,8 +26,8 @@ ALLOWED_LANGS = ("ar", "en")     # the only languages the project supports
 
 # ONE concise domain-rich prompt per language to guide vocabulary and punctuation
 PROMPTS = {
-    "ar": "ديف، افتح المتصفح، اقفل المتصفح، اقفل التطبيق، اقفلي، سكر، علي الصوت، وطي الصوت، خفف الصوت، اكتم، شغل موسيقى، افتح الآلة الحاسبة، افتح الملفات، اقفل، ابحث عن، ارسل رسالة، افتح الترمينال، اعلي السطوع، وطي الإضاءة، افتحلي، ابعت رسالة.",
-    "en": "Hey Dave, open the browser, close the browser, close the app, turn up volume, lower volume, mute, play music, open calculator, open files, close, search, send message, open terminal.",
+    "ar": "ديف، افتح المتصفح، اقفل المتصفح، علي الصوت، وطي الصوت، اكتم، شغل موسيقى، افتح الآلة الحاسبة، افتح الملفات، انشئ ملف، اعمل ملف، ابحث عن، ارسل رسالة، افتح الترمينال، اعلي السطوع، وطي الإضاءة.",
+    "en": "Hey Dave, open the browser, close the browser, turn up volume, lower volume, mute, play music, open calculator, open files, create file, make a file, search, send message, open terminal.",
 }
 
 SILENCE_RMS = 0.003    # gate for (almost) digital silence; VAD handles real noise
@@ -51,6 +51,8 @@ _HALLUCINATIONS = (
     "thanks for watching", "thank you for watching", "subtitles by", "amara org", "please subscribe",
     "like and subscribe", "شكرا للمشاهده", "شكرا لمشاهدتكم", "شكرا علي المشاهده", "اشتركوا في القناه",
     "اشترك في القناه", "ترجمه نانسي قنقر",
+    # Prompt leakage hallucination chains
+    "اقفل، سكر", "اقفلي، سكر", "سكر، افتح", "اقفل، افتح", "سكر افتح",
 )
 
 

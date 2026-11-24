@@ -32,11 +32,14 @@ def transcribe(wav_path: str, lang_hint: str | None = None) -> dict:
         text, lang = model.transcribe(wav_path, language=lang_hint)
 
         # Cross-language recovery: if auto-detect produced an unrecognized intent,
-        # test the alternative language (en/ar) to recover accented commands (e.g. "Open calculator")
-        if lang_hint is None and text:
+        # or if text is empty (e.g. filtered hallucination), or contains suspicious prompt leakage,
+        # test the alternative language (en/ar) to recover accented/English commands (e.g. "create file.md")
+        if lang_hint is None:
             try:
                 from intent_parser import parse
-                if parse(text).get("intent") == "unknown":
+                is_unknown = not text or parse(text).get("intent") == "unknown"
+                is_suspicious_leak = bool(text and lang == "ar" and any(p in text for p in ["اقفل،", "سكر", "المتصفح الصوت"]))
+                if is_unknown or is_suspicious_leak:
                     other_lang = "en" if lang == "ar" else "ar"
                     other_text, other_l = model.transcribe(wav_path, language=other_lang)
                     if other_text and parse(other_text).get("intent") != "unknown":
