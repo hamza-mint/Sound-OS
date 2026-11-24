@@ -135,18 +135,27 @@ _KNOWN_EXT = frozenset({
 })
 _HAS_EXT = re.compile(r"\.(" + "|".join(sorted(_KNOWN_EXT, key=len, reverse=True)) + r")$", re.I)
 
-# "create excel sheet data" → data.xlsx; keys are NORMALIZED forms
+# "create excel sheet data" / "create python file main" / "create txt file notes" → name.ext
 _TYPE_EXT = {
     "excel": ".xlsx", "اكسل": ".xlsx", "spreadsheet": ".xlsx", "sheet": ".xlsx", "شيت": ".xlsx",
     "word": ".docx", "وورد": ".docx",
     "python": ".py", "بايثون": ".py",
-    "markdown": ".md",
+    "text": ".txt", "txt": ".txt", "تيكست": ".txt", "تكست": ".txt", "نصي": ".txt", "نص": ".txt",
+    "markdown": ".md", "md": ".md", "ماركداون": ".md",
     "powerpoint": ".pptx", "بوربوينت": ".pptx", "presentation": ".pptx",
+    "json": ".json", "جيسون": ".json",
+    "csv": ".csv",
+    "html": ".html",
+    "css": ".css",
+    "javascript": ".js", "js": ".js",
+    "bash": ".sh", "shell": ".sh",
+    "yaml": ".yaml", "yml": ".yml",
+    "pdf": ".pdf",
 }
 # Filler words stripped AFTER a type keyword is consumed
 _TYPE_FILLER = {N(w) for w in [
     "file", "ملف", "فايل", "document", "مستند", "وثيقه", "sheet", "شيت",
-    "script", "سكريبت", "spreadsheet", "new", "جديد", "جديده",
+    "script", "سكريبت", "spreadsheet", "new", "جديد", "جديده", "empty", "فاضي", "فاضيه",
     "a", "an", "the", "named", "called", "اسمه", "اسمها", "باسم",
 ]}
 FOLDER_WORD = W("مجلد", "فولدر", "folder", "directory")
@@ -269,13 +278,19 @@ def r_volume(t):
 def r_create_file(t):
     m_make = re.search(MAKE, t)
     after = t[m_make.end():].strip() if m_make else t.strip()
+    after = re.sub(
+        r"\s*\b(?:dot|نقطه)\s+(" + "|".join(sorted(_KNOWN_EXT, key=len, reverse=True)) + r")\b",
+        r".\1",
+        after,
+    )
 
-    # Path 1: type keyword (excel/word/python/markdown…) → default extension
+    # Path 1: type keyword (excel/word/python/text/markdown…) → default extension
     for kw, ext in sorted(_TYPE_EXT.items(), key=lambda x: len(x[0]), reverse=True):
-        if re.search(r"\b" + re.escape(kw) + r"\b", after):
+        pat_kw = r"(?<!\.)\b" + re.escape(kw) + r"\b"
+        if re.search(pat_kw, after):
             if not m_make and not re.search(r"\b(?:sheet|شيت|file|ملف|فايل|document|مستند|جدول)\b", after):
                 continue
-            rest = re.sub(r"\b" + re.escape(kw) + r"\b", " ", after, count=1)
+            rest = re.sub(pat_kw, " ", after, count=1)
             for fw in _TYPE_FILLER:
                 rest = re.sub(r"\b" + re.escape(fw) + r"\b", " ", rest)
             name = _clean_name(re.sub(r"\s+", " ", rest).strip())

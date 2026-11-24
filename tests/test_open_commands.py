@@ -56,10 +56,21 @@ def test_create_file(phrase, name):
     ("create word document", "new_file.docx"),
     ("create python file", "new_file.py"),
     ("create markdown file", "new_file.md"),
-    # type keyword + custom name → name.ext
+    # type keyword + custom name → name.ext ("create <type> file <name>")
     ("create excel sheet budget", "budget.xlsx"),
+    ("create excel file budget", "budget.xlsx"),
     ("create word document report", "report.docx"),
+    ("create word file report", "report.docx"),
     ("create python file test", "test.py"),
+    ("create python file hamza", "hamza.py"),
+    ("create txt file hamza", "hamza.txt"),
+    ("create text file notes", "notes.txt"),
+    ("create text file", "new_file.txt"),
+    ("create empty text file", "new_file.txt"),
+    ("create markdown file readme", "readme.md"),
+    ("create json file config", "config.json"),
+    ("create csv file data", "data.csv"),
+    ("اعمل ملف نصي hamza", "hamza.txt"),
     # "file.ext" (the word "file" IS the filename) and spoken dot/phonetic variants
     ("create file.txt", "file.txt"),
     ("create file.py", "file.py"),
