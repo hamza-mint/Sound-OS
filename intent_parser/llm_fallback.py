@@ -71,6 +71,32 @@ def _validate(data):
 _loaded = False              # True after the first answer: before that a call also pays the model load (~20-60 s on a CPU)
 _down_until = 0.0            # after a failed call the LLM is skipped for 30 s (a dead server must not cost 20 s per sentence)
 _on_thinking = None          # optional UI hook: fn(True) before a slow LLM call, fn(False) after it
+_state = "off"               # off | starting | ready | thinking | down   (shown in the terminal and on the GUI)
+_on_state = None             # optional hook: fn(state, detail) every time the state changes
+STATE_TEXT = {"off": "OFF (rules only)", "starting": "starting...", "ready": "ready",
+              "thinking": "thinking...", "down": "NOT available (rules only)"}
+
+
+def set_state_callback(fn):
+    global _on_state
+    _on_state = fn
+
+
+def _set_state(new, detail=""):
+    global _state
+    if new == _state and not detail:
+        return
+    _state = new
+    try:
+        if _on_state:
+            _on_state(new, detail)
+    except Exception:                                # a UI problem must never break the parser
+        pass
+
+
+def state():
+    """Current LLM state: off | starting | ready | thinking | down."""
+    return _state
 _started = None              # the `ollama serve` process WE started (stopped again when main exits)
 
 
@@ -145,6 +171,7 @@ def disable():
     so a dead server can never freeze a command. Start Ollama and restart main to get it back."""
     global _down_until
     _down_until = float("inf")
+    _set_state("down")
 
 
 def warm_up(wait=False):
@@ -168,6 +195,7 @@ def ask_llm_ex(text, timeout=None, quiet=False):
     }).encode()
     if not quiet:
         _notify(True)
+        _set_state("thinking")
     try:
         req = urllib.request.Request(URL, body, {"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout or (TIMEOUT if _loaded else max(TIMEOUT, 90))) as r:
@@ -175,10 +203,13 @@ def ask_llm_ex(text, timeout=None, quiet=False):
         _loaded = True
     except Exception:
         _down_until = time.time() + 30
+        _set_state("down", "Ollama did not answer; retrying in 30 s")
         return "error", None
     finally:
         if not quiet:
             _notify(False)
+            if _state == "thinking":
+                _set_state("ready")
     ok = _validate(answer)
     return ("ok", ok) if ok else ("unknown", None)
 
