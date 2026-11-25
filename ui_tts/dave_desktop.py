@@ -395,15 +395,15 @@ def _make_window_class():
         # ----- painting (Qt draws Dave directly: smooth, see-through, fast) -----
         def paintEvent(self, event):
             p = QtGui.QPainter(self)
-            p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-            p.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing)
-            p.setCompositionMode(QtGui.QPainter.CompositionMode.CompositionMode_Source)
-            p.fillRect(self.rect(), QtGui.QColor(0, 0, 0, 0))     # start fully see-through
-            p.setCompositionMode(QtGui.QPainter.CompositionMode.CompositionMode_SourceOver)
-            p.translate(CENTER)                                  # shrink toward his middle
-            p.scale(self.scale, self.scale)
-            p.translate(-CENTER)
             try:
+                p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+                p.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing)
+                p.setCompositionMode(QtGui.QPainter.CompositionMode.CompositionMode_Source)
+                p.fillRect(self.rect(), QtGui.QColor(0, 0, 0, 0))     # start fully see-through
+                p.setCompositionMode(QtGui.QPainter.CompositionMode.CompositionMode_SourceOver)
+                p.translate(CENTER)                                  # shrink toward his middle
+                p.scale(self.scale, self.scale)
+                p.translate(-CENTER)
                 self.sprite.draw(p, self.now, speaking=self.bubble is not None, scene=self.scene)
                 self.paint_bubble(p)
                 self.paint_llm_pill(p)
@@ -412,7 +412,13 @@ def _make_window_class():
                     self.failed = True
                     import traceback
                     traceback.print_exc()
-            p.end()
+            finally:
+                # Always end the painter here. If an error ever escaped with the painter still
+                # open, Python kept it alive inside the stored traceback and Qt crashed (SIGSEGV
+                # in QPainter::end) when the program shut down after the window was gone.
+                if p.isActive():
+                    p.end()
+                del p
 
         LLM_PILL = {                       # state -> (label, colour)
             "ready": ("LLM ready", "#2e7d32"),
@@ -566,11 +572,33 @@ def _window_main():
             pass
         commands.put({"cmd": "quit"})   # the program ended: Dave goes home too
 
+    if sys.platform.startswith("linux") and not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
+        # Qt calls abort() (core dump) when there is no screen to connect to; say it plainly instead.
+        sys.stderr.write("Dave: no desktop session found (WAYLAND_DISPLAY/DISPLAY are empty), so he stays home.\n")
+        sys.exit(2)
+
     app = QtWidgets.QApplication(sys.argv)
     window = _make_window_class()(commands)
     threading.Thread(target=reader, daemon=True).start()
     window.show()
-    app.exec()
+    code = app.exec()
+
+    # Tear down in the right order, then leave without Python's module cleanup: PySide objects
+    # destroyed during interpreter shutdown, after the QApplication is gone, used to segfault.
+    try:
+        window.close()
+        window.deleteLater()
+        app.processEvents()
+    except Exception:
+        pass
+    sys.last_exc = sys.last_value = sys.last_type = sys.last_traceback = None
+    del window
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except Exception:
+            pass
+    os._exit(code)
 
 
 if __name__ == "__main__":
