@@ -6,6 +6,7 @@ import argparse
 import os
 import re
 import sys
+import threading
 import time
 
 if sys.platform.startswith("linux") and "DISPLAY" in os.environ and "QT_QPA_PLATFORM" not in os.environ:
@@ -38,16 +39,31 @@ def _llm_thinking(active):
             pass
 
 
-def _setup_llm():
-    """Only when SOUNDOS_LLM=1: hook the UI, check Ollama, load the model in the background."""
-    if os.environ.get("SOUNDOS_LLM") != "1":
+def _setup_llm(block=True):
+    """The local LLM (Plan B) is ON by default: SOUNDOS_LLM=0 turns it off. Starts `ollama serve` if it is not
+    running, checks the model, loads it in the background. Never raises: without it the rules still work."""
+    if os.environ.setdefault("SOUNDOS_LLM", "1") != "1":
+        print("[Sound OS] LLM fallback is OFF (SOUNDOS_LLM=0): rules only.")
         return
     from intent_parser import llm_fallback
     llm_fallback.set_thinking_callback(_llm_thinking)
-    ok, msg = llm_fallback.status()
-    print(f"[Sound OS] \U0001F9E0 LLM fallback ON - {msg}" if ok else f"[Sound OS] \u26A0 LLM fallback ON but NOT ready - {msg}")
-    if ok:
-        llm_fallback.warm_up()
+
+    def work():
+        try:
+            ok, msg = llm_fallback.ensure_running()
+            print(f"[Sound OS] \U0001F9E0 LLM fallback ON - {msg}" if ok
+                  else f"[Sound OS] \u26A0 LLM fallback is NOT ready - {msg}. The rules keep working without it.", flush=True)
+            if not ok:
+                llm_fallback.disable()
+            else:
+                llm_fallback.warm_up(wait=block)        # single-shot: finish loading first; live loop: in the background
+        except Exception as exc:
+            print(f"[Sound OS] \u26A0 LLM fallback disabled: {exc!r}")
+
+    if block:
+        work()
+    else:
+        threading.Thread(target=work, daemon=True).start()      # do not delay the microphone loop
 
 
 def _execute_single(text, ask_yes_no, lang_hint=None, confidence=1.0, parsed=None):
@@ -282,7 +298,7 @@ if __name__ == "__main__":
     args = ap.parse_args()
     if args.no_ui:
         os.environ["SOUNDOS_NO_UI"] = "1"
-    _setup_llm()
+    _setup_llm(block=bool(args.text or args.wav))     # single-shot modes wait for it; the live loop does not
     if args.text:
         on_wake()
         handle(args.text, ask_yes_no=lambda: input("yes/no> "))
