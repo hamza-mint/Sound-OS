@@ -31,13 +31,35 @@ def run(phrase, llm):
     t0 = time.time(); r = parse(phrase); return r, time.time() - t0
 
 
+def llm_only(rows):
+    ok = wrong = miss = 0; lat = []; bad = []
+    for row in rows:
+        exp = "unknown" if row["intent"] in ("shutdown", "delete_file") else row["intent"]   # the LLM must refuse these
+        t0 = time.time(); status, ans = llm_fallback.ask_llm_ex(row["phrase"]); lat.append(time.time() - t0)
+        got, gp = (ans if ans else ("unknown", {}))
+        good = got == exp and (exp == "unknown" or params_ok(row["params"], gp))
+        if good: ok += 1
+        elif got == "unknown": miss += 1
+        else: wrong += 1
+        if not good: bad.append(f'  {row["id"]} [{row["group"]}] {row["phrase"]!r}: expected {exp} {row["params"]} | got {got} {gp} ({status})')
+    n = len(rows)
+    print(f"LLM ONLY ({llm_fallback.MODEL}, prompt={'rules-aware' if os.getenv('SOUNDOS_PROMPT') == 'rules' else 'basic'}): "
+          f"correct {ok}/{n} ({100*ok/n:.0f}%) | unknown(safe miss) {miss} | WRONG ACTION {wrong} | "
+          f"avg {sum(lat)/len(lat):.1f}s max {max(lat):.1f}s")
+    print("\n".join(bad))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", default=str(ROOT / "testdata" / "holdout.csv"))
+    ap.add_argument("--llm-only", action="store_true",
+                    help="ask ONLY the LLM about every row (no rules, no cue gate): measures the prompt itself. Slow.")
     a = ap.parse_args()
     rows = list(csv.DictReader(open(a.csv, encoding="utf-8")))
     print(f"model={llm_fallback.MODEL} url={llm_fallback.URL} threshold={llm_fallback.FUZZY_THRESHOLD} rows={len(rows)}")
     llm_fallback.ask_llm("ارفع الصوت")                      # warm-up, not counted
+    if a.llm_only:
+        return llm_only(rows)
     st = {m: dict(ok=0, wrong=0, miss=0) for m in ("rules", "rules+llm")}
     calls = 0; lat = []; diffs = []
     for row in rows:

@@ -35,7 +35,7 @@ ALLOWED = {
     "web_search": {"query"}, "play_media": {"query"},
 }
 
-PROMPT = (
+PROMPT_BASIC = (
     "You turn one spoken computer command (Egyptian Arabic or English) into JSON.\n"
     'Reply with JSON only: {"intent": "<name>", "params": {...}}\n'
     "Intents: open_app{app}, close_app{app}, volume_up, volume_down, mute, brightness_up, "
@@ -49,6 +49,78 @@ PROMPT = (
     'Text: "what is the capital of France" -> {"intent": "unknown", "params": {}}\n'
     "Text: "
 )
+
+
+
+# Few-shot examples taken from the team's own phrase list (testdata/phrases.csv) - they teach the LLM how THIS
+# project reads a sentence. NEVER paste phrases from testdata/holdout.csv here: it is the honest exam.
+_EXAMPLES = [
+    ("الصوت واطي اوي", {"intent": "volume_up", "params": {}}),
+    ("نزل الصوت", {"intent": "volume_down", "params": {}}),
+    ("من غير صوت لو سمحت", {"intent": "mute", "params": {}}),
+    ("الشاشه ضلمه اوي", {"intent": "brightness_up", "params": {}}),
+    ("عايز افتح الحاسبه", {"intent": "open_app", "params": {"app": "calculator"}}),
+    ("سكرلي الملفات", {"intent": "close_app", "params": {"app": "files"}}),
+    ("اعملي ملف اسمه notes.txt", {"intent": "create_file", "params": {"name": "notes.txt"}}),
+    ("روح علي الموسيقي", {"intent": "open_folder", "params": {"folder": "music"}}),
+    ("دورلي علي اسعار الذهب", {"intent": "web_search", "params": {"query": "اسعار الذهب"}}),
+    ("عايز اسمع ام كلثوم", {"intent": "play_media", "params": {"query": "ام كلثوم"}}),
+    ("turn up the volume", {"intent": "volume_up", "params": {}}),
+    ("اطفي الكمبيوتر", {"intent": "unknown", "params": {}}),
+    ("الساعه كام", {"intent": "unknown", "params": {}}),
+    ("i installed vlc yesterday", {"intent": "unknown", "params": {}}),
+    ("the vlc update has a bug", {"intent": "unknown", "params": {}}),
+]
+
+
+def _build_prompt():
+    """Prompt built FROM the rules: app and folder names (and their spellings) come straight from rules.py, so
+    when the team adds a spelling to the rules the LLM learns it too. Kept SHORT on purpose: on a CPU every extra
+    prompt token costs time (the first long version doubled the latency and made it worse)."""
+    from . import rules
+    apps = "\n".join(f"  {k} = {', '.join(v[:6])}" for k, v in rules.APPS.items())
+    folders = "\n".join(f"  {k} = {', '.join(v[:3])}" for k, v in rules.FOLDERS.items())
+    shots = "\n".join(f"Text: {json.dumps(t, ensure_ascii=False)} -> {json.dumps(a, ensure_ascii=False)}"
+                      for t, a in _EXAMPLES)
+    return (
+        "You turn ONE spoken computer command (Arabic or English) into JSON. The text comes from speech-to-text.\n"
+        'Reply with JSON only: {"intent": "<name>", "params": {...}}\n'
+        "Intents: open_app{app}, close_app{app}, volume_up, volume_down, mute, brightness_up, brightness_down, "
+        "create_file{name}, open_folder{folder}, web_search{query}, play_media{query}, unknown.\n"
+        "Apps (KEY = spoken forms):\n" + apps + "\n"
+        "Folders (KEY = spoken forms; another folder name is kept as said):\n" + folders + "\n"
+        "Rules:\n"
+        "- Only real COMMANDS. Talking ABOUT something is unknown: an app being slow, crashing or buggy, "
+        "greetings, questions, small talk.\n"
+        "- Only two complaints count as commands: the SOUND level (too low / too loud) and the SCREEN brightness "
+        "(too dark / too bright).\n"
+        "- close + sound = mute. close + an app = close_app. A plain 'browser' / متصفح = firefox.\n"
+        "- Turning off or restarting the computer, and deleting files: always unknown.\n"
+        "- App not in the list: unknown.\n"
+        + shots + "\nText: "
+    )
+
+
+_PROMPT_CACHE = None
+
+
+def _prompt():
+    """The prompt for the LLM. Default: the short one (PROMPT_BASIC).
+    SOUNDOS_PROMPT=rules selects the experimental rules-aware prompt built from rules.py. Measured on the 82-phrase
+    holdout (qwen3.5:4b, CPU): it was NOT more accurate (78/82 vs 79/82) and about 2x slower (16 s vs 8.7 s per call),
+    and the first, longer version even made 2 wrong actions. So it stays opt-in."""
+    global _PROMPT_CACHE
+    if os.getenv("SOUNDOS_PROMPT") != "rules":
+        return PROMPT_BASIC
+    if _PROMPT_CACHE is None:
+        try:
+            _PROMPT_CACHE = _build_prompt()
+        except Exception:
+            _PROMPT_CACHE = PROMPT_BASIC
+    return _PROMPT_CACHE
+
+
+PROMPT = PROMPT_BASIC        # kept for old scripts that import it
 
 
 def _validate(data):
@@ -189,7 +261,7 @@ def ask_llm_ex(text, timeout=None, quiet=False):
     if time.time() < _down_until:
         return "error", None
     body = json.dumps({
-        "model": MODEL, "prompt": PROMPT + json.dumps(text, ensure_ascii=False),
+        "model": MODEL, "prompt": _prompt() + json.dumps(text, ensure_ascii=False),
         "stream": False, "format": "json", "think": False, "keep_alive": "30m",
         "options": {"temperature": 0},
     }).encode()
