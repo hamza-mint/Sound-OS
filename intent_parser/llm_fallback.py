@@ -10,12 +10,14 @@ Safety:       the answer is validated, and the LLM can NEVER return a dangerous
 Uses only the standard library. Any failure -> None -> the parser says "unknown".
 """
 import atexit
+from collections import OrderedDict
 import json
 import os
 import shutil
 import subprocess
 import threading
 import time
+import urllib.error
 import urllib.request
 
 # OLLAMA_URL may be the base ("http://host:11434") or the full ".../api/generate" - both work.
@@ -125,18 +127,43 @@ PROMPT = PROMPT_BASIC        # kept for old scripts that import it
 
 def _validate(data):
     """Return (intent, params) if the LLM answer is safe and well-formed, else None."""
-    from .rules import APPS                      # late import: avoids a circular import
+    from .rules import APPS, FOLDERS, _find_alias  # late import: avoids a circular import
+    from .normalize import normalize as norm_ar
     if not isinstance(data, dict):
         return None
-    intent, params = data.get("intent"), data.get("params", {})
-    if intent not in ALLOWED or not isinstance(params, dict):
+    intent = str(data.get("intent", "")).strip().lower()
+    raw_params = data.get("params", {})
+    if raw_params is None:
+        raw_params = {}
+    if intent not in ALLOWED or not isinstance(raw_params, dict):
         return None                              # unknown, or dangerous, or garbage
-    if not set(params) <= ALLOWED[intent]:
-        return None
-    if any(not isinstance(v, str) or not v or len(v) > 100 for v in params.values()):
-        return None
-    if "app" in params and params["app"] not in APPS:
-        return None
+
+    # Keep only allowed keys and drop empty optional values (create_file/play_media allow {})
+    params = {}
+    for k, v in raw_params.items():
+        if k not in ALLOWED[intent]:
+            return None
+        if v is None:
+            continue
+        if not isinstance(v, str) or len(v) > 100:
+            return None
+        s = v.strip()
+        if not s:
+            if intent in ("create_file", "play_media"):
+                continue
+            return None
+        params[k] = s
+
+    if "app" in params:
+        app_val = params["app"].lower()
+        if app_val not in APPS:
+            app_val = _find_alias(APPS, norm_ar(app_val)) or ""
+        if app_val not in APPS:
+            return None
+        params["app"] = app_val
+    if "folder" in params:
+        f_val = params["folder"].lower()
+        params["folder"] = _find_alias(FOLDERS, norm_ar(f_val)) or f_val
     return intent, params
 
 
@@ -254,24 +281,55 @@ def warm_up(wait=False):
         threading.Thread(target=ask_llm_ex, args=("ارفع الصوت",), kwargs={"quiet": True}, daemon=True).start()
 
 
+_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()
+_CACHE_MAX = 128
+
+
+def _cache_get(key):
+    if key in _CACHE:
+        _CACHE.move_to_end(key)
+        return _CACHE[key]
+    return None
+
+
+def _cache_put(key, val):
+    _CACHE[key] = val
+    _CACHE.move_to_end(key)
+    if len(_CACHE) > _CACHE_MAX:
+        _CACHE.popitem(last=False)
+
+
+def _call_ollama(prompt_text: str, timeout: float) -> dict:
+    body = json.dumps({
+        "model": MODEL, "prompt": prompt_text,
+        "stream": False, "format": "json",
+        "think": False, "keep_alive": "30m",
+        "options": {"temperature": 0, "num_predict": 64},
+    }).encode()
+    req = urllib.request.Request(URL, body, {"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(json.loads(r.read())["response"])
+
+
 def ask_llm_ex(text, timeout=None, quiet=False):
     """text -> ("ok", (intent, params)) | ("unknown", None) | ("error", None). Never raises.
     "error" = Ollama off / timeout / bad JSON, so the caller can keep its own answer."""
     global _down_until, _loaded
+    if not isinstance(text, str) or not text.strip():
+        return "unknown", None
+    prompt_str = _prompt()
+    cache_key = (MODEL, prompt_str, text.strip())
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     if time.time() < _down_until:
         return "error", None
-    body = json.dumps({
-        "model": MODEL, "prompt": _prompt() + json.dumps(text, ensure_ascii=False),
-        "stream": False, "format": "json", "think": False, "keep_alive": "30m",
-        "options": {"temperature": 0},
-    }).encode()
+    eff_timeout = timeout or (TIMEOUT if _loaded else max(TIMEOUT, 90))
     if not quiet:
         _notify(True)
         _set_state("thinking")
     try:
-        req = urllib.request.Request(URL, body, {"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=timeout or (TIMEOUT if _loaded else max(TIMEOUT, 90))) as r:
-            answer = json.loads(json.loads(r.read())["response"])
+        answer = _call_ollama(prompt_str + json.dumps(text, ensure_ascii=False), eff_timeout)
         _loaded = True
     except Exception:
         _down_until = time.time() + 30
@@ -283,7 +341,9 @@ def ask_llm_ex(text, timeout=None, quiet=False):
             if _state == "thinking":
                 _set_state("ready")
     ok = _validate(answer)
-    return ("ok", ok) if ok else ("unknown", None)
+    res = ("ok", ok) if ok else ("unknown", None)
+    _cache_put(cache_key, res)
+    return res
 
 
 def ask_llm(text, timeout=None):
