@@ -1,0 +1,83 @@
+id,group,lang,phrase,intent,params
+H01,volume,ar,ارجو رفع مستوى الصوت,volume_up,
+H02,volume,ar,اجعل الصوت اعلى,volume_up,
+H03,volume,ar,زد من مستوى الصوت,volume_up,
+H04,volume,en,make it louder,volume_up,
+H05,volume,en,turn the volume up please,volume_up,
+H06,volume,en,the audio is too low,volume_up,
+H07,volume,ar,اخفض الصوت قليلا,volume_down,
+H08,volume,ar,اريد صوتا اهدأ,volume_down,
+H09,volume,en,turn it down a notch,volume_down,
+H10,volume,en,the volume is too loud,volume_down,
+H11,volume,en,please mute the sound,mute,
+H12,volume,ar,اكتم الصوت من فضلك,mute,
+H13,brightness,ar,زد سطوع الشاشة,brightness_up,
+H14,brightness,ar,اجعل الشاشة اكثر سطوعا,brightness_up,
+H15,brightness,en,increase screen brightness,brightness_up,
+H16,brightness,en,the display is too dim,brightness_up,
+H17,brightness,ar,قلل اضاءة الشاشة,brightness_down,
+H18,brightness,en,make the screen darker,brightness_down,
+H19,brightness,en,lower the brightness,brightness_down,
+H20,open_app,ar,اريد استخدام الة حاسبة,open_app,app=calculator
+H21,open_app,ar,هل تفتح لي المتصفح,open_app,app=firefox
+H22,open_app,ar,شغل لي متصفح الانترنت,open_app,app=firefox
+H23,open_app,en,launch chrome,open_app,app=chrome
+H24,open_app,en,i want to use the terminal,open_app,app=terminal
+H25,open_app,en,open the file manager,open_app,app=files
+H26,open_app,ar,ممكن اشوف الاعدادات,open_app,app=settings
+H27,open_app,en,start the text editor,open_app,app=editor
+H28,open_app,en,bring up the settings,open_app,app=settings
+H29,open_app,ar,افتح محرر النصوص,open_app,app=editor
+H30,close_app,ar,اغلق الحاسبة من فضلك,close_app,app=calculator
+H31,close_app,en,please close chrome,close_app,app=chrome
+H32,close_app,ar,انهي برنامج الاعدادات,close_app,app=settings
+H33,close_app,en,shut the browser,close_app,app=firefox
+H34,close_app,ar,انهي متصفح فايرفوكس,close_app,app=firefox
+H35,open_folder,ar,افتح مجلد المستندات,open_folder,folder=documents
+H36,open_folder,ar,اريد رؤية مجلد التنزيلات,open_folder,folder=downloads
+H37,open_folder,en,take me to the desktop,open_folder,folder=desktop
+H38,open_folder,en,show my pictures,open_folder,folder=pictures
+H39,open_folder,en,open the music folder,open_folder,folder=music
+H40,open_folder,ar,افتح مجلد الفيديوهات,open_folder,folder=videos
+H41,web_search,ar,ابحث عن وصفة كعك,web_search,query=كعك
+H42,web_search,en,search the web for linux tutorials,web_search,query=linux
+H43,web_search,en,find information about python online,web_search,query=python
+H44,play_media,ar,شغل لي اغنية,play_media,
+H45,play_media,en,i would like to hear some music,play_media,
+H46,play_media,en,play a podcast,play_media,
+H47,create_file,ar,انشئ ملفا باسم ملاحظات,create_file,name=ملاحظات
+H48,create_file,en,make a new file called notes,create_file,name=notes
+H49,stt_typo,ar,افتح المتصف,open_app,app=firefox
+H50,stt_typo,ar,افتح الكرم,open_app,app=chrome
+H51,stt_typo,ar,افتح الترمنال,open_app,app=terminal
+H52,stt_typo,en,oben firefox,open_app,app=firefox
+H53,stt_typo,en,open crome,open_app,app=chrome
+H54,stt_typo,ar,اقفل الحاسبه,close_app,app=calculator
+H55,stt_typo,en,open the brouser,open_app,app=firefox
+H56,stt_typo,ar,افتح مجلد التحميلات,open_folder,folder=downloads
+H57,danger,en,turn off the computer,shutdown,
+H58,danger,en,power off the laptop,shutdown,
+H59,danger,ar,اطفئ الجهاز,shutdown,
+H60,ood,ar,اخبرني عن تاريخ مصر,unknown,
+H61,ood,en,how are you today,unknown,
+H62,ood,en,tell me a joke,unknown,
+H63,ood,en,what time is it,unknown,
+H64,ood,en,i like pizza,unknown,
+H65,ood,ar,الجو جميل اليوم,unknown,
+H66,ood,ar,مرحبا كيف حالك,unknown,
+H67,ood,en,thank you very much,unknown,
+H68,ood,en,this is a test of the system,unknown,
+H69,ood,en,one two three four,unknown,
+H70,ood,en,the quick brown fox jumps over the lazy dog,unknown,
+H71,ood,ar,اللهم صل على محمد,unknown,
+H72,halluc,ar,شكرا لكم على المشاهدة,unknown,
+H73,halluc,ar,اشتركوا في القناة,unknown,
+H74,halluc,en,thanks for watching,unknown,
+H75,halluc,en,subtitles by the amara community,unknown,
+H76,mention,en,firefox keeps crashing,unknown,
+H77,mention,en,chrome is slow today,unknown,
+H78,mention,ar,المتصفح بطيء جدا,unknown,
+H79,mention,en,the music was nice yesterday,unknown,
+H80,mention,en,my files are all over the place,unknown,
+H81,mention,en,the terminal looks nice,unknown,
+H82,mention,en,i love this calculator,unknown,

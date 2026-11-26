@@ -50,14 +50,24 @@ def _alias_re(alias):
     return r"\b(?:ال)?" + re.escape(N(alias)) + r"\b"      # الكروم == كروم
 
 
+# Generic words for "a web browser". When a specific app is also named ("انهي متصفح كروم", "open the
+# browser chrome") the specific name wins; before this fix the earlier word "متصفح" silently picked firefox.
+_GENERIC_APP_WORDS = {N(a) for a in ["متصفح", "متصف", "مبصف", "لما تصف", "browser", "web browser",
+                                     "براوزر", "البراوزر"]}
+
+
 def _find_alias(table, t):
-    """Canonical key whose alias appears first in t (longest alias wins a tie)."""
+    """Canonical key whose alias appears first in t (longest alias wins a tie).
+    A specific app name beats a generic word such as "browser"."""
     best = None
     for key, aliases in table.items():
         for a in aliases:
             m = re.search(_alias_re(a), t)
-            if m and (best is None or (m.start(), -len(a)) < best[0]):
-                best = ((m.start(), -len(a)), key)
+            if not m:
+                continue
+            rank = (table is APPS and N(a) in _GENERIC_APP_WORDS, m.start(), -len(a))
+            if best is None or rank < best[0]:
+                best = (rank, key)
     return best[1] if best else None
 
 
@@ -117,7 +127,7 @@ OPEN_NAV = V("افتح", "فتح", "تفتح", "وريني", "ودني", "ودي
              "open", "opening", "show", "go to", "take me to", "browse")          # no "شغل": that means play
 CLOSE = V("اقفل", "قفل", "تقفل", "سكر", "تسكر", "اغلق", "تغلق", "وقف", "اخرج من", "اطفي", "طفي", "تطفي", "انهي",
           "اغلاق", "انهاء", "اقفال",          # noun forms: "اغلاق المتصفح" used to OPEN the browser
-          "سيب", "اطلع من", "close", "quit", "exit", "kill", "stop", "terminate")
+          "سيب", "اطلع من", "close", "quit", "exit", "kill", "stop", "terminate", "shut")
 PLAY = V("شغل", "تشغل", "اسمع", "سمعني", "تسمعني", "play", "put on", "listen to")
 SEARCH = V("ابحث", "تبحث", "دور", "تدور", "سيرش", "بحث", "search", "google", "look up", "lookup")
 SEND_MSG = W("ارسل", "ارسللي", "ابعت", "ابعتلي", "ابعث", "ابعثلي", "وصل", "send", "message", "text")
@@ -387,7 +397,7 @@ def r_close_app(t):
         matched = explicit_close.group(1)
         for key, aliases in APPS.items():
             if any(re.fullmatch(_alias_re(a), matched) for a in aliases):
-                return ("close_app", {"app": key})
+                return ("close_app", {"app": _find_alias(APPS, t) or key})   # "انهي متصفح كروم" -> chrome
     # Generic app alias anywhere after close verb
     app = _find_alias(APPS, t)
     if app:
@@ -477,11 +487,22 @@ def _only_entity(t, table):
     return None
 
 
+def _only_app_words(t):
+    """True if, once every known app name is removed, nothing is left except fillers ("the", "my"...).
+    So "متصفح كروم" or "my browser" may open an app without a verb, but "firefox keeps crashing" and
+    "المتصفح بطيء جدا" (statements that merely mention an app) must not."""
+    rest = t
+    for aliases in APPS.values():
+        for a in aliases:
+            rest = re.sub(_alias_re(a), " ", rest)
+    return all(tok in _BARE_FILLER or tok in {"my", "our", "this", "that", "your"} for tok in rest.split())
+
+
 def r_open_app(t):
     if has(CLOSE, t):
         return None
     app = _find_alias(APPS, t)
-    if app and (has(OPEN_ANY, t) or len(t.split()) <= 3):
+    if app and (has(OPEN_ANY, t) or (len(t.split()) <= 3 and _only_app_words(t))):
         return ("open_app", {"app": app})
     app = _only_entity(t, APPS)                                 # bare "firefox" / "the browser"
     if app:
@@ -496,6 +517,25 @@ RULES = [r_web_search,       # strong, anchored verb; checked first so "search h
 
 
 # --------------------------------------------------------------- public API
+# Extra words that hint at a computer command in phrasings the rules do not know ("it is too bright").
+# Plain regex on purpose: W() would also feed fuzzy.py's vocabulary and change typo repair.
+_CUE_EXTRA = (r"\b(?:bright|brighter|dark|darker|dim|dimmer|loud|louder|quiet|quieter|silence|silent|unmute|"
+              r"speakers?|headphones?|folder|window|app|application|program|"
+              r"كتم|اسكت|ساكت|مظلم|منور|عالي|واطي|برنامج|تطبيق|نافذه|شباك)\b")
+
+
+def command_cue(t):
+    """True if the normalized text looks like a computer command (a command verb, a volume/brightness/file/media
+    word, or a known app/folder name). Speech with none of these ("what is the capital of France", noise,
+    Whisper hallucinations) never wakes the LLM: that call costs ~9 s on a CPU and could only answer unknown."""
+    if not t or len(t.split()) > 12:
+        return False
+    for pat in (OPEN_ANY, CLOSE, PLAY, SEARCH, MAKE, DEL, VOL_OBJ, BRI_OBJ, FOLDER_WORD, FILE, MEDIA_NOUN, _CUE_EXTRA):
+        if has(pat, t):
+            return True
+    return bool(_find_alias(APPS, t) or _find_alias(FOLDERS, t))
+
+
 def _prepare(raw):
     t = N(raw)
     t = re.sub(r"\bgoogle chrome\b", "chrome", t)                # not a web search
@@ -572,13 +612,19 @@ def parse(text, lang=None):
         hit = rule(t)
         if hit:
             return _out(hit[0], hit[1], lang, raw)
+    _fuzzy_hit.last_alt = None
     hit = _fuzzy_hit(t)
     if hit:
-        return _out(hit[0], hit[1], lang, raw)
+        if os.getenv("SOUNDOS_LLM") == "1":                      # OPTIONAL second opinion on shaky fuzzy hits
+            from .llm_fallback import verify_fuzzy
+            hit = verify_fuzzy(raw, t, hit, _fuzzy_hit.last_alt)
+        if hit:
+            return _out(hit[0], hit[1], lang, raw)
+        return _out("unknown", {}, lang, raw)                    # LLM disagreed -> fail safe
     hit = _first_clause_hit(raw)
     if hit:
         return _out(hit[0], hit[1], lang, raw)
-    if os.getenv("SOUNDOS_LLM") == "1":                          # OPTIONAL, see llm_fallback.py
+    if os.getenv("SOUNDOS_LLM") == "1" and command_cue(t):       # OPTIONAL, see llm_fallback.py
         from .llm_fallback import ask_llm
         hit = ask_llm(raw)
         if hit:
@@ -614,6 +660,7 @@ def _fuzzy_hit(t):
                 hit = rule(alt)
                 if hit:
                     if hit[0] not in DANGEROUS:
+                        _fuzzy_hit.last_alt = alt                # for the optional LLM second opinion
                         return hit
                     break                                        # dangerous -> try the next variant
         # "hoping down loads" / "oben documents": the English verb "open" came out as gibberish. Only OPENING
@@ -625,6 +672,7 @@ def _fuzzy_hit(t):
                     hit = rule(alt)
                     if hit:
                         if hit[0] in ("open_app", "open_folder"):
+                            _fuzzy_hit.last_alt = alt
                             return hit
                         break
     except Exception as exc:                                     # parser must never raise ...

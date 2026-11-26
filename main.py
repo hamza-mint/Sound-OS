@@ -6,6 +6,7 @@ import argparse
 import os
 import re
 import sys
+import threading
 import time
 
 if sys.platform.startswith("linux") and "DISPLAY" in os.environ and "QT_QPA_PLATFORM" not in os.environ:
@@ -18,9 +19,71 @@ from safety import check, notify_confirmed
 from executor import execute
 from ui_tts import speak, notify, play_wake_ack, play_done_sound, wait_until_silent, strip_own_speech
 try:
-    from ui_tts.dave_bridge import on_wake, on_heard, on_done
+    from ui_tts.dave_bridge import on_wake, on_heard, on_done, say as say_bubble, hush
 except ImportError:
-    from ui_tts.coucou_bridge import on_wake, on_heard, on_done
+    from ui_tts.coucou_bridge import on_wake, on_heard, on_done, say as say_bubble, hush
+try:
+    from ui_tts.dave_bridge import set_llm_state
+except ImportError:
+    def set_llm_state(state):                 # no GUI available: terminal line only
+        return None
+
+
+def _llm_thinking(active):
+    """Shown while the local LLM (Plan B) works: ~10 s on a CPU, so the user must see that Dave is not frozen."""
+    if active:
+        print("[Sound OS] \U0001F914 Asking the local LLM (Plan B)... this can take ~10 s", flush=True)
+        try:
+            say_bubble("Thinking... \U0001F914", seconds=25)
+        except Exception:
+            pass
+    else:
+        try:
+            hush()
+        except Exception:
+            pass
+
+
+def _llm_state_changed(state, detail):
+    """Every LLM state change: one clear line in the terminal and the same state on Dave's screen."""
+    from intent_parser.llm_fallback import STATE_TEXT
+    icon = {"ready": "\U0001F9E0", "thinking": "\U0001F914", "starting": "\u23F3", "down": "\u26A0", "off": "\u26D4"}.get(state, "")
+    line = f"[Sound OS] {icon} LLM {STATE_TEXT.get(state, state)}" + (f" - {detail}" if detail else "")
+    print(line, flush=True)
+    try:
+        set_llm_state(state)
+    except Exception:
+        pass
+
+
+def _setup_llm(block=True):
+    """The local LLM (Plan B) is ON by default: SOUNDOS_LLM=0 turns it off. Starts `ollama serve` if it is not
+    running, checks the model, loads it in the background. Never raises: without it the rules still work."""
+    if os.environ.setdefault("SOUNDOS_LLM", "1") != "1":
+        _llm_state_changed("off", "SOUNDOS_LLM=0")
+        return
+    from intent_parser import llm_fallback
+    llm_fallback.set_thinking_callback(_llm_thinking)
+    llm_fallback.set_state_callback(_llm_state_changed)
+
+    def work():
+        try:
+            llm_fallback._set_state("starting")
+            ok, msg = llm_fallback.ensure_running()
+            if not ok:
+                print(f"[Sound OS] \u26A0 {msg}. The rules keep working without it.", flush=True)
+                llm_fallback.disable()
+            else:
+                llm_fallback.warm_up(wait=block)        # single-shot: finish loading first; live loop: in the background
+                llm_fallback._set_state("ready", msg)
+        except Exception as exc:
+            print(f"[Sound OS] \u26A0 LLM fallback disabled: {exc!r}", flush=True)
+            llm_fallback.disable()
+
+    if block:
+        work()
+    else:
+        threading.Thread(target=work, daemon=True).start()      # do not delay the microphone loop
 
 
 def _execute_single(text, ask_yes_no, lang_hint=None, confidence=1.0, parsed=None):
@@ -255,6 +318,7 @@ if __name__ == "__main__":
     args = ap.parse_args()
     if args.no_ui:
         os.environ["SOUNDOS_NO_UI"] = "1"
+    _setup_llm(block=bool(args.text or args.wav))     # single-shot modes wait for it; the live loop does not
     if args.text:
         on_wake()
         handle(args.text, ask_yes_no=lambda: input("yes/no> "))

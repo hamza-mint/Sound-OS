@@ -185,6 +185,11 @@ def hush() -> None:
         pass
 
 
+def set_llm_state(state) -> None:
+    """Show the local LLM state on Dave's screen: off | starting | ready | thinking | down."""
+    _send("llm", str(state))
+
+
 def say(text, seconds=3.0) -> None:
     """Dave shows a speech bubble with this text for a few seconds."""
     try:
@@ -230,6 +235,7 @@ def _make_window_class():
             self.scale, self.landed, self.greeted, self.hello_sent = 0.4, False, False, False
             self.bubble = None
             self.bubble_rect = None
+            self.llm_state = "off"
             self.pending, self.next_ok = [], 0.0
             self.speech_until = 0.0                    # while he is speaking, mood bubbles stay out of the way
             self.scene, self.now = None, time.perf_counter()
@@ -354,6 +360,8 @@ def _make_window_class():
                     pass
                 elif cmd == "hush":
                     self.hush()
+                elif cmd == "llm":                             # status pill: right away, never queued
+                    self.llm_state = str(msg.get("arg") or "off")
                 elif cmd == "say" and self.phase != "outro":     # in step with the voice: right away
                     self.handle(msg, now)
                 else:
@@ -398,12 +406,36 @@ def _make_window_class():
             try:
                 self.sprite.draw(p, self.now, speaking=self.bubble is not None, scene=self.scene)
                 self.paint_bubble(p)
+                self.paint_llm_pill(p)
             except Exception:
                 if not self.failed:
                     self.failed = True
                     import traceback
                     traceback.print_exc()
             p.end()
+
+        LLM_PILL = {                       # state -> (label, colour)
+            "ready": ("LLM ready", "#2e7d32"),
+            "thinking": ("LLM thinking...", "#f9a825"),
+            "starting": ("LLM starting...", "#1565c0"),
+            "down": ("LLM not available", "#c62828"),
+            "off": ("LLM OFF", "#616161"),
+        }
+
+        def paint_llm_pill(self, p):
+            """Small status badge in the top-left corner: is the local LLM on, thinking, or off?"""
+            label, colour = self.LLM_PILL.get(getattr(self, "llm_state", "off"), self.LLM_PILL["off"])
+            font = QtGui.QFont()
+            font.setPointSize(9)
+            font.setBold(True)
+            p.setFont(font)
+            fm = QtGui.QFontMetrics(font)
+            w, h = fm.horizontalAdvance(label) + 16, fm.height() + 6
+            p.setPen(QtCore.Qt.PenStyle.NoPen)
+            p.setBrush(QtGui.QColor(colour))
+            p.drawRoundedRect(QtCore.QRectF(6, 6, w, h), h / 2, h / 2)
+            p.setPen(QtGui.QColor("white"))
+            p.drawText(QtCore.QRectF(6, 6, w, h), QtCore.Qt.AlignmentFlag.AlignCenter, label)
 
         def paint_bubble(self, p):
             b = self.bubble

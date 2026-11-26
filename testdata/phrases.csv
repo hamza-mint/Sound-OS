@@ -241,3 +241,11 @@ N03,stt_typos,ar,اقفل الباب,unknown,
 N04,stt_typos,en,open the door,unknown,
 N05,stt_typos,ar,اطفي الجهار,unknown,
 N06,stt_typos,ar,اقفل الجهار,unknown,
+R01,regress,ar,انهي متصفح كروم,close_app,app=chrome
+R02,regress,ar,افتح متصفح كروم,open_app,app=chrome
+R03,regress,en,close the browser chrome,close_app,app=chrome
+R04,regress,en,shut the browser,close_app,app=firefox
+R05,regress,en,firefox keeps crashing,unknown,
+R06,regress,ar,المتصفح بطيء جدا,unknown,
+R07,regress,ar,متصفح كروم,open_app,app=chrome
+R08,regress,en,shut down the computer,shutdown,

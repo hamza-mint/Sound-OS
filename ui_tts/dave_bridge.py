@@ -10,6 +10,7 @@ from .dave_desktop import (
     set_mouth,
     hush,
     say,
+    set_llm_state,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "set_mouth",
     "hush",
     "say",
+    "set_llm_state",
 ]
