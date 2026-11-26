@@ -190,3 +190,51 @@ def test_clear_fuzzy_cache():
     out = parse("open downloads")
     assert out["intent"] == "open_folder"
     assert out["params"]["folder"] == "downloads"
+
+
+@pytest.mark.parametrize("phrase,url", [
+    ("افتح اليوتيوب", "https://www.youtube.com"),
+    ("افتح اليوتوب من فايرفوكس", "https://www.youtube.com"),
+    ("شغل يوتيوب", "https://www.youtube.com"),
+    ("youtube", "https://www.youtube.com"),
+    ("open youtube", "https://www.youtube.com"),
+    ("open youtube in firefox", "https://www.youtube.com"),
+    ("افتح فيسبوك", "https://www.facebook.com"),
+    ("open facebook", "https://www.facebook.com"),
+    ("افتح انستجرام", "https://www.instagram.com"),
+    ("open instagram", "https://www.instagram.com"),
+    ("افتح واتساب", "https://web.whatsapp.com"),
+    ("open whatsapp", "https://web.whatsapp.com"),
+    ("افتح تيك توك", "https://www.tiktok.com"),
+    ("open tiktok", "https://www.tiktok.com"),
+    ("افتح تويتر", "https://x.com"),
+    ("open twitter", "https://x.com"),
+    ("open x", "https://x.com"),
+    ("افتح اكس", "https://x.com"),
+    ("افتح لينكدان", "https://www.linkedin.com"),
+    ("open linkedin", "https://www.linkedin.com"),
+    ("افتح تليجرام", "https://web.telegram.org"),
+    ("open telegram", "https://web.telegram.org"),
+    ("افتح سناب شات", "https://www.snapchat.com"),
+    ("open snapchat", "https://www.snapchat.com"),
+    ("open reddit", "https://www.reddit.com"),
+    ("open threads", "https://www.threads.net"),
+    ("open pinterest", "https://www.pinterest.com"),
+    ("open discord", "https://discord.com/app"),
+    ("open github", "https://github.com"),
+    ("افتح جيميل", "https://mail.google.com"),
+    ("open chatgpt", "https://chatgpt.com"),
+])
+def test_open_social_media_and_websites(phrase, url):
+    out = parse(phrase)
+    assert (out["intent"], out["params"]) == ("web_search", {"query": url})
+
+
+def test_website_non_commands_and_searches_do_not_hijack():
+    assert parse("youtube keeps crashing")["intent"] == "unknown"
+    assert parse("الفيسبوك واقع النهارده")["intent"] == "unknown"
+    assert parse("search youtube") == {
+        "intent": "web_search", "params": {"query": "youtube"}, "lang": "en", "raw_text": "search youtube"
+    }
+    assert parse("شغل اغنية على يوتيوب")["intent"] == "play_media"
+    assert parse("ابعت رسالة على واتساب")["intent"] == "send_message"

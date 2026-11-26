@@ -17,7 +17,7 @@ from typing import List
 _CONJUNCTION_PATTERNS = [
     r"\s+(?:ثم|وبعدين|بعدين|وبعدها|بعدها|وكمان|كمان|وبعد ذلك)\s+",
     r"\s+(?:and then|then|and also)\s+",
-    r"\s+و(?!(?:اتس|اطي|ريني|ثائق|احد|سط)\b)(?=[\u0621-\u064A])",  # Arabic 'و' attached to following word without eating words starting with و
+    r"\s+و(?!(?:اتس|اتساب|اطي|ريني|ثائق|احد|سط|ورد)\b)(?=[\u0621-\u064A])",  # Arabic 'و' attached to following word without eating words starting with و
     r"\s+و\s+",                  # Standalone Arabic 'و'
     r"\s+and\s+",                # English 'and'
     r"\s*[،,;؛]\s*",             # Comma / semicolon separating distinct actions

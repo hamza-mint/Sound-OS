@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Dict, Any, Tuple
 
@@ -293,12 +294,19 @@ def _handle_web_search(params: dict, lang: str, dry_run: bool) -> Tuple[bool, st
     if not query:
         msg = "Empty search query." if lang == "en" else "استعلام البحث فارغ."
         return False, msg
+    is_url = query.startswith(("https://", "http://")) and not any(c.isspace() for c in query)
+    site_label = urllib.parse.urlparse(query).netloc.removeprefix("www.") if is_url else query
     if dry_run:
+        if is_url:
+            return True, f"[DRY-RUN] Opening {site_label} in Firefox" if lang == "en" else f"[تجربة] فتح {site_label} في فايرفوكس"
         return True, f"[DRY-RUN] Searching web for: {query}" if lang == "en" else f"[تجربة] بحث ويب عن: {query}"
     ok, err = actions.search_web(query, budget_sec=_SUB_COMMAND_TIMEOUT)
     if not ok and (err == "offline" or "No internet" in err):
         msg = "No internet connection available." if lang == "en" else "لا يوجد اتصال بالإنترنت حالياً."
         return False, msg
+    if is_url:
+        msg = (f"Opened {site_label}." if ok else f"Open failed: {err}") if lang == "en" else (f"تم فتح {site_label}." if ok else f"فشل فتح الموقع: {err}")
+        return ok, msg
     msg = (f"Searching for '{query}'." if ok else f"Search error: {err}") if lang == "en" else (f"جاري البحث عن '{query}'." if ok else f"خطأ في البحث: {err}")
     return ok, msg
 

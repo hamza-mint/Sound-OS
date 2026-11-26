@@ -110,6 +110,25 @@ FOLDERS = {
     "music":     ["موسيقي", "موسيقا", "music"],
     "videos":    ["فيديوهات", "فيديوهاتي", "videos"],
 }
+# Social media & popular websites -> canonical HTTPS URL (opened in Firefox)
+WEBSITES = {
+    "https://www.youtube.com":     ["يوتيوب", "اليوتيوب", "يوتوب", "اليوتوب", "youtube", "you tube"],
+    "https://www.facebook.com":    ["فيسبوك", "الفيسبوك", "فيس بوك", "الفيس بوك", "الفيس", "فيس", "facebook", "face book"],
+    "https://www.instagram.com":   ["انستجرام", "انستقرام", "انستغرام", "انستا", "الانستا", "instagram", "insta"],
+    "https://web.whatsapp.com":    ["واتساب", "الواتساب", "واتس اب", "الواتس اب", "واتس", "الواتس", "whatsapp", "whats app"],
+    "https://www.tiktok.com":      ["تيك توك", "التيك توك", "تيكتوك", "التيكتوك", "tiktok", "tik tok"],
+    "https://x.com":               ["تويتر", "التويتر", "منصه اكس", "موقع اكس", "twitter"],
+    "https://www.linkedin.com":    ["لينكدان", "لينكد ان", "linkedin", "linked in"],
+    "https://web.telegram.org":    ["تليجرام", "التليجرام", "تيليجرام", "تلجرام", "التلجرام", "تليغرام", "telegram"],
+    "https://www.snapchat.com":    ["سناب شات", "السناب شات", "سنابشات", "السنابشات", "سناب", "السناب", "snapchat", "snap chat"],
+    "https://www.reddit.com":      ["ريديت", "ريدت", "الريديت", "reddit"],
+    "https://www.threads.net":     ["ثريدز", "تريدز", "threads"],
+    "https://www.pinterest.com":   ["بنترست", "بينترست", "pinterest"],
+    "https://discord.com/app":     ["ديسكورد", "الديسكورد", "discord"],
+    "https://github.com":          ["جيت هب", "جيتهب", "غيت هب", "github", "git hub"],
+    "https://mail.google.com":     ["جيميل", "الجيميل", "gmail", "g mail"],
+    "https://chatgpt.com":         ["شات جي بي تي", "تشات جي بي تي", "chatgpt", "chat gpt"],
+}
 
 NOISE = W("ممكن", "لو سمحت", "من فضلك", "يا ريت", "بالله عليك", "لو تكرمت", "عايز", "عاوز", "عايزه",
           "نفسي", "اريد", "محتاج", "يا ساوند", "يا ديف", "يا عم ديف", "ياعم ديف", "بعد اذنك", "لو سمحتلي",
@@ -367,6 +386,8 @@ def r_play_media(t):
     noun = has(MEDIA_NOUN, t)
     if _find_alias(APPS, t) and not noun:
         return None                                              # "شغل vlc" = open the app
+    if _find_website(t) and not noun and _only_site_or_browser(re.sub(PLAY, " ", t, count=1)):
+        return None                                              # "شغل يوتيوب" = open the site
     q = _strip_lead(t[m.end():], PLAY_LEAD)
     if not noun and not q:
         return None
@@ -498,6 +519,43 @@ def _only_app_words(t):
     return all(tok in _BARE_FILLER or tok in {"my", "our", "this", "that", "your"} for tok in rest.split())
 
 
+_SITE_FILLER = _BARE_FILLER | {
+    "my", "our", "this", "that", "your", "in", "on", "from", "with", "using", "via",
+    "website", "site", "page", "app", "في", "علي", "من", "موقع", "صفحه", "تطبيق", "برنامج", "ابلكيشن",
+}
+
+
+def _only_site_or_browser(t):
+    """True when `t` contains only website / browser aliases plus benign fillers (never statements)."""
+    rest = t
+    for table in (WEBSITES, {"firefox": APPS["firefox"], "chrome": APPS["chrome"]}):
+        for aliases in table.values():
+            for a in aliases:
+                rest = re.sub(_alias_re(a), " ", rest)
+    return all(tok in _SITE_FILLER for tok in rest.split())
+
+
+def _find_website(t):
+    url = _find_alias(WEBSITES, t)
+    if url:
+        return url
+    # Only treat bare "x" / "اكس" as X.com when paired with an open verb ("open x", "افتح اكس")
+    if has(OPEN_ANY, t) and re.search(r"\b(?:x|اكس)\b", t):
+        return "https://x.com"
+    return None
+
+
+def r_open_website(t):
+    if has(CLOSE, t):
+        return None
+    url = _find_website(t)
+    if not url:
+        return None
+    if has(OPEN_ANY, t) or _only_site_or_browser(t):
+        return ("web_search", {"query": url})
+    return None
+
+
 def r_open_app(t):
     if has(CLOSE, t):
         return None
@@ -513,7 +571,7 @@ RULES = [r_web_search,       # strong, anchored verb; checked first so "search h
          r_shutdown, r_delete_file,                              # dangerous before harmless
          r_mute, r_brightness, r_volume,
          r_create_file, r_open_folder, r_play_media,
-         r_send_message, r_close_app, r_open_app]
+         r_send_message, r_open_website, r_close_app, r_open_app]
 
 
 # --------------------------------------------------------------- public API
@@ -533,7 +591,7 @@ def command_cue(t):
     for pat in (OPEN_ANY, CLOSE, PLAY, SEARCH, MAKE, DEL, VOL_OBJ, BRI_OBJ, FOLDER_WORD, FILE, MEDIA_NOUN, _CUE_EXTRA):
         if has(pat, t):
             return True
-    return bool(_find_alias(APPS, t) or _find_alias(FOLDERS, t))
+    return bool(_find_alias(APPS, t) or _find_alias(FOLDERS, t) or _find_alias(WEBSITES, t))
 
 
 def _prepare(raw):

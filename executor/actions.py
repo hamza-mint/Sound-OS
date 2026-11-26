@@ -505,13 +505,19 @@ def delete_user_file(filename: str, dry_run: bool = False) -> Tuple[bool, str]:
 # ---------------------------------------------------------
 # Web Search & Media
 # ---------------------------------------------------------
+def _open_url_in_firefox(url: str, timeout_sec: float = 0.85) -> Tuple[bool, str]:
+    """Open a URL directly in Firefox if available, falling back to xdg-open."""
+    browser = shutil.which("firefox") or shutil.which("firefox-esr") or "xdg-open"
+    return _spawn_detached([browser, url], timeout_sec=timeout_sec)
+
+
 def search_web(query: str, check_net: bool = True, budget_sec: float = 0.85) -> Tuple[bool, str]:
     """
-    Open default browser with Google search.
+    Open a direct HTTPS URL in Firefox or launch a Google search in the default browser.
     Follows CONTRACT.md §4: 'web_search needs internet; say so in the message if offline.'
 
     Args:
-        query: Search query string
+        query: Search query string or direct http(s):// URL
         check_net: Whether to check internet connectivity
         budget_sec: Remaining time budget for this operation (default 0.85s)
     """
@@ -526,6 +532,9 @@ def search_web(query: str, check_net: bool = True, budget_sec: float = 0.85) -> 
     # Check remaining budget before launching browser
     elapsed = time.monotonic() - t0
     remaining = max(0.1, budget_sec - elapsed)
+
+    if clean_query.startswith(("https://", "http://")) and not any(c.isspace() for c in clean_query):
+        return _open_url_in_firefox(clean_query, timeout_sec=remaining)
 
     encoded = urllib.parse.quote(clean_query)
     url = f"https://www.google.com/search?q={encoded}"

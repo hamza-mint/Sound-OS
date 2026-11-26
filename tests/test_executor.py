@@ -519,3 +519,23 @@ def test_subcommand_timeout_budget():
     sig_play = inspect.signature(actions.play_media_content)
     assert "budget_sec" in sig_play.parameters
     assert sig_play.parameters["budget_sec"].default == 0.85
+
+
+def test_open_website_uses_firefox_and_formats_message(monkeypatch):
+    from executor import actions
+    spawned = []
+    monkeypatch.setattr(actions, "check_internet_connection", lambda timeout=0.5: True)
+    monkeypatch.setattr(actions.shutil, "which", lambda name: "/usr/bin/firefox" if name == "firefox" else None)
+    monkeypatch.setattr(actions, "_spawn_detached", lambda cmd, timeout_sec=0.85: (spawned.append(cmd) or True, ""))
+
+    os.environ["SOUNDOS_DRY_RUN"] = "0"
+    res = execute({"intent": "web_search", "params": {"query": "https://www.youtube.com"}, "lang": "ar"})
+    assert res["success"] is True
+    assert "youtube.com" in res["message"]
+    assert spawned == [["/usr/bin/firefox", "https://www.youtube.com"]]
+
+    os.environ["SOUNDOS_DRY_RUN"] = "1"
+    dry_res = execute({"intent": "web_search", "params": {"query": "https://www.facebook.com"}, "lang": "en"})
+    assert dry_res["success"] is True
+    assert "facebook.com" in dry_res["message"]
+    assert "Firefox" in dry_res["message"]
