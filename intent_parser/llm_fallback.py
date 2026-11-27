@@ -26,7 +26,7 @@ URL = _BASE if _BASE.endswith("/api/generate") else _BASE + "/api/generate"
 MODEL = os.getenv("SOUNDOS_MODEL") or os.getenv("OLLAMA_MODEL") or "qwen3.5:4b"
 TIMEOUT = float(os.getenv("SOUNDOS_LLM_TIMEOUT", "20"))     # 4B on CPU measured ~9 s per call
 # A fuzzy (typo-repaired) hit below this similarity to what was heard gets a second opinion.
-FUZZY_THRESHOLD = float(os.getenv("SOUNDOS_LLM_THRESHOLD", "0.85"))
+FUZZY_THRESHOLD = float(os.getenv("SOUNDOS_LLM_THRESHOLD", "0.78"))
 
 # intent -> allowed param names. Dangerous intents are left out on purpose.
 ALLOWED = {

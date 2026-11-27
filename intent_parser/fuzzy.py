@@ -42,11 +42,12 @@ _EN_STOPWORDS = frozenset({
     "some", "your", "here", "how", "who", "why", "tell", "good",
     "time", "just", "also", "only", "very", "much", "many", "more",
     "been", "will", "want", "make", "like", "know", "think", "look",
-    "came", "come", "said", "says", "find", "show", "help", "need",
+    "came", "come", "said", "says", "find", "show", "help", "need", "apps",
 })
 
 # Letters Whisper confuses by sound. Used ONLY to compare two words, never to rewrite text.
-_PHON = str.maketrans({"ص": "س", "ث": "س", "ذ": "ز", "ظ": "ز", "ض": "د", "ط": "ت", "ق": "ك"})
+_PHON = str.maketrans({"ص": "س", "ث": "س", "ذ": "ز", "ظ": "ز", "ض": "د", "ط": "ت", "ق": "ك",
+                       "p": "b", "v": "f"})
 
 # Arabic close/open verbs that Whisper often confuses (acoustic similarity)
 # Adding explicit mapping so "افتح" -> "اقفل" when context demands close
@@ -55,11 +56,6 @@ _CLOSE_OPEN_MAP = {
     "افتحلي": "اقفلي", "افتحها": "اقفلها",
     "open": "close", "opening": "closing", "openit": "closeit",
 }
-
-
-def _core(tok):
-    """Drop the Arabic definite article: المتصفح -> متصفح."""
-    return tok[2:] if tok.startswith("ال") and len(tok) > 4 else tok
 
 
 def _core(tok):
@@ -85,7 +81,7 @@ def _tables():
     from . import rules
     phrases = set(rules._VOCAB)
     aliases = {}
-    for table in (rules.APPS, rules.FOLDERS):
+    for table in (rules.APPS, rules.FOLDERS, rules.WEBSITES):
         for key, names in table.items():
             for a in names:
                 n = N(a)

@@ -62,7 +62,7 @@ def _recover_transcript(model: SpeechToText, wav_path: str, text: str, lang: str
     if text and lang == "ar":
         text, probe_text = _verify_ar_prompt(model, wav_path, text, prompt_clauses)
 
-    is_unknown = not text or parse(text).get("intent") == "unknown"
+    is_unknown = not text or parse(text, allow_llm=False).get("intent") == "unknown"
     is_suspicious_leak = bool(text and lang == "ar" and any(p in text for p in ["اقفل،", "سكر", "المتصفح الصوت", "انشئ ملفات"]))
     if not (is_unknown or is_suspicious_leak):
         return text, lang
@@ -75,14 +75,18 @@ def _recover_transcript(model: SpeechToText, wav_path: str, text: str, lang: str
             probe_text = ar_probe
 
     # Prefer prompt-free probe if it already yields a valid non-prompt intent
-    if probe_text and parse(probe_text).get("intent") != "unknown":
+    if probe_text and parse(probe_text, allow_llm=False).get("intent") != "unknown":
         return probe_text, "ar"
-    if other_text and parse(other_text).get("intent") != "unknown":
+    if other_text and parse(other_text, allow_llm=False).get("intent") != "unknown":
         return other_text, other_l
     # Fallback: prompt-free decode in the originally detected language
     lang_probe, _ = model.transcribe(wav_path, language=lang, use_prompt=False)
-    if lang_probe and parse(lang_probe).get("intent") != "unknown":
+    if lang_probe and parse(lang_probe, allow_llm=False).get("intent") != "unknown":
         return lang_probe, lang
+    # Final fast STT attempt: prompt-free decode in the alternative language before giving up to LLM
+    other_probe, _ = model.transcribe(wav_path, language=other_lang, use_prompt=False)
+    if other_probe and parse(other_probe, allow_llm=False).get("intent") != "unknown":
+        return other_probe, other_lang
     return text, lang
 
 

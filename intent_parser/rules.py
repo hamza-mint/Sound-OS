@@ -141,14 +141,18 @@ NOISE = W("ممكن", "لو سمحت", "من فضلك", "يا ريت", "بالل
           "i would like to", "i'd like to", "i wanna", "kindly", "now")
 
 OPEN_ANY = V("افتح", "فتح", "تفتح", "شغل", "تشغل", "وريني", "ودني", "وديني", "روح", "هات", "طلعلي",
-             "ابدا", "ادخل علي", "اعرض", "اظهر", "open", "oven", "launch", "start", "run", "show", "bring up")
+             "ابدا", "ادخل علي", "اعرض", "اظهر", "استخدم", "استخدام", "استعمل", "استعمال",
+             "اشوف", "شوف", "رويه", "رؤيه", "اتفرج علي", "اشتغل علي",
+             "open", "oven", "launch", "start", "run", "show", "bring up", "use", "wanna use", "want to use")
 OPEN_NAV = V("افتح", "فتح", "تفتح", "وريني", "ودني", "وديني", "روح", "هات", "طلعلي", "ادخل علي", "اعرض", "اظهر",
+             "اشوف", "شوف", "رويه", "رؤيه", "اتفرج علي",
              "open", "opening", "show", "go to", "take me to", "browse")          # no "شغل": that means play
 CLOSE = V("اقفل", "قفل", "تقفل", "سكر", "تسكر", "اغلق", "تغلق", "وقف", "اخرج من", "اطفي", "طفي", "تطفي", "انهي",
           "اغلاق", "انهاء", "اقفال",          # noun forms: "اغلاق المتصفح" used to OPEN the browser
           "سيب", "اطلع من", "close", "quit", "exit", "kill", "stop", "terminate", "shut")
-PLAY = V("شغل", "تشغل", "اسمع", "سمعني", "تسمعني", "play", "put on", "listen to")
-SEARCH = V("ابحث", "تبحث", "دور", "تدور", "سيرش", "بحث", "search", "google", "look up", "lookup")
+PLAY = V("شغل", "تشغل", "اسمع", "سمعني", "تسمعني", "play", "put on", "listen to", "hear", "wanna hear", "want to hear")
+SEARCH = V("ابحث", "تبحث", "دور", "تدور", "سيرش", "بحث",
+           "search", "google", "look up", "lookup", "find information", "find info")
 SEND_MSG = W("ارسل", "ارسللي", "ابعت", "ابعتلي", "ابعث", "ابعثلي", "وصل", "send", "message", "text")
 MAKE = W("اعمل", "اعملي", "اعمللي", "عمل", "تعمل", "انشي", "انشاء", "كريت", "كريد", "كرييت", "كريات",
          "قريد", "قريت", "قريط", "اصنع", "جهز", "create", "make", "new", "generate")
@@ -195,14 +199,15 @@ MEDIA = ["اغنيه", "اغاني", "اغنيات", "موسيقي", "موسيق
          "track", "tracks", "podcast"]
 MEDIA_NOUN = r"\b(?:ال)?(?:" + "|".join(sorted({re.escape(N(w)) for w in MEDIA}, key=len, reverse=True)) + r")\b"   # allows الاغاني / القران
 
-VOL_OBJ = W("الصوت", "صوت", "فوليوم", "الفوليوم", "السماعات", "السماعه", "volume", "sound", "audio")
+VOL_OBJ = W("الصوت", "صوت", "صوتا", "فوليوم", "الفوليوم", "السماعات", "السماعه", "volume", "sound", "audio")
 BRI_OBJ = W("السطوع", "سطوع", "الاضاءه", "اضاءه", "الشاشه", "شاشه", "النور", "brightness", "backlight",
             "screen", "display")
-UP_WORDS = ["علي", "اعلي", "ارفع", "رفع", "زود", "زيد", "زياده", "كبر", "اكتر", "اكثر", "عالي", "اعلا",
+UP_WORDS = ["علي", "اعلي", "ارفع", "رفع", "زود", "زيد", "زياده", "زد", "كبر", "اكتر", "اكثر", "عالي", "اعلا",
             "عليلي", "ارفعلي", "زودلي", "شد", "قوي", "كتر", "اكبر",
             "up", "raise", "increase", "louder", "higher", "more", "boost", "bump", "crank"]
 DOWN_WORDS = ["وطي", "واطي", "اوطي", "اخفض", "خفض", "قلل", "نزل", "انقص", "نقص", "اقل", "خفف", "خففلي", "هدي", "هديلي", "اخفضلي",
-              "down", "lower", "decrease", "reduce", "quieter", "softer", "less", "drop"]
+              "اهدا", "اهدأ", "اهدئ", "هادي", "هاديه",  # Egyptian/فصحى: أهدأ = quieter
+              "down", "lower", "decrease", "reduce", "quieter", "softer", "less", "drop", "darker", "dimmer"]
 
 # lead words dropped from free-text params
 _COMMON = {"لي", "ليا", "for", "me", "the", "a", "an", "my", "some", "this", "that", "it", "شويه", "حاجه", "اي"}
@@ -224,8 +229,8 @@ VOL = dict(
     obj=VOL_OBJ, up=V(*UP_WORDS), down=V(*DOWN_WORDS),
     too_high=W("عالي", "عاليه", "مرتفع", "جامد", "قوي"),
     too_low=W("واطي", "واطيه", "ضعيف", "خافت", "هادي", "هاديه"),
-    stand_up=W("مش سامع", "مش سامعه") + r"|\blouder\b|\btoo (?:quiet|soft|low)\b|\bcan ?t hear\b",
-    stand_down=r"\bquieter\b|\bsofter\b|\btoo (?:loud|noisy|high)\b",
+    stand_up=W("مش سامع", "مش سامعه") + r"|\blouder\b|\btoo (?:quiet|soft|low)\b|\bcan ?t hear\b|\bturn (?:it |the (?:volume|sound) )?up\b",
+    stand_down=r"\bquieter\b|\bsofter\b|\btoo (?:loud|noisy|high)\b|\bturn (?:it |the (?:volume|sound) )?down\b",
 )
 BRI = dict(
     obj=BRI_OBJ, up=V(*UP_WORDS, "نور", "brighter"), down=V(*DOWN_WORDS, "ظلم", "عتم", "اعتم", "خفف", "dim", "dimmer"),
@@ -657,7 +662,7 @@ NEGATED = re.compile(r"\bما ?ت\w+ش\b|\bمت\w+ش\b|\bلا ?ت\w+\b|\bبلا�
                      r"\b(?:don ?t|do not|never|no need to)\b")          # N() turns don't into "don t"
 
 
-def parse(text, lang=None):
+def parse(text, lang=None, allow_llm=True):
     """text -> {"intent", "params", "lang", "raw_text"}. Never raises.
     No rule matches -> a typo-tolerant second pass (fuzzy.py), then optional LLM,
     then intent "unknown" (safety layer must block it)."""
@@ -673,16 +678,16 @@ def parse(text, lang=None):
     _fuzzy_hit.last_alt = None
     hit = _fuzzy_hit(t)
     if hit:
-        if os.getenv("SOUNDOS_LLM") == "1":                      # OPTIONAL second opinion on shaky fuzzy hits
+        if allow_llm and os.getenv("SOUNDOS_LLM") == "1":       # OPTIONAL second opinion on shaky fuzzy hits
             from .llm_fallback import verify_fuzzy
             hit = verify_fuzzy(raw, t, hit, _fuzzy_hit.last_alt)
         if hit:
             return _out(hit[0], hit[1], lang, raw)
         return _out("unknown", {}, lang, raw)                    # LLM disagreed -> fail safe
-    hit = _first_clause_hit(raw)
+    hit = _first_clause_hit(raw, allow_llm=allow_llm)
     if hit:
         return _out(hit[0], hit[1], lang, raw)
-    if os.getenv("SOUNDOS_LLM") == "1" and command_cue(t):       # OPTIONAL, see llm_fallback.py
+    if allow_llm and os.getenv("SOUNDOS_LLM") == "1" and command_cue(t):       # OPTIONAL, see llm_fallback.py
         from .llm_fallback import ask_llm
         hit = ask_llm(raw)
         if hit:
@@ -694,13 +699,13 @@ _fuzzy_warned = False
 _CLAUSE_SPLIT = re.compile(r"[\u060c,.\u061f?!;\u061b]+")
 
 
-def _first_clause_hit(raw):
+def _first_clause_hit(raw, allow_llm=True):
     """Whisper often says the real command and then keeps going with junk ("اقفل، ابح عاماج." / "افتح المتصفح، افضح،").
     When the whole sentence is unknown, the FIRST clause alone is tried. Never for a dangerous intent."""
     clauses = [c.strip() for c in _CLAUSE_SPLIT.split(raw) if c.strip()]
     if len(clauses) < 2:
         return None
-    first = parse(clauses[0])
+    first = parse(clauses[0], allow_llm=allow_llm)
     if first["intent"] == "unknown" or first["intent"] in DANGEROUS:
         return None
     return first["intent"], first["params"]
