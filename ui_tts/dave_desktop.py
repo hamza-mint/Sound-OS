@@ -295,6 +295,11 @@ def _make_window_class():
         def begin_exit(self):
             if self.phase == "outro":
                 return
+            if getattr(self, "_restore_terminal", None) is not None:
+                try:
+                    self._restore_terminal()
+                except Exception:
+                    pass
             if getattr(self, "_tray_icon", None) is not None:
                 try:
                     self._tray_icon.hide()
@@ -649,6 +654,91 @@ def _set_autostart(enabled, icon=None):
         return False
 
 
+def _find_terminal_wid():
+    """Return the X11 Window ID (int) of the terminal running Sound OS, or None."""
+    if not sys.platform.startswith("linux") or not os.environ.get("DISPLAY"):
+        return None
+    env_wid = os.environ.get("WINDOWID", "").strip()
+    if env_wid:
+        try:
+            wid = int(env_wid, 0)
+            if wid > 0:
+                return wid
+        except ValueError:
+            pass
+    # Walk ancestor PIDs via /proc and match against _NET_CLIENT_LIST windows
+    ancestors = set()
+    pid = os.getpid()
+    while pid > 1 and pid not in ancestors:
+        ancestors.add(pid)
+        try:
+            with open(f"/proc/{pid}/stat", "r", encoding="utf-8", errors="ignore") as f:
+                stat = f.read()
+            rparen = stat.rfind(")")
+            if rparen == -1:
+                break
+            ppid = int(stat[rparen + 2:].split()[1])
+            pid = ppid
+        except Exception:
+            break
+    if not ancestors:
+        return None
+    try:
+        out = subprocess.check_output(
+            ["xprop", "-root", "_NET_CLIENT_LIST"], text=True, timeout=1.0, stderr=subprocess.DEVNULL
+        )
+        import re as _re
+        wids = _re.findall(r"0x[0-9a-fA-F]+", out)
+        for w in wids:
+            try:
+                p_out = subprocess.check_output(
+                    ["xprop", "-id", w, "_NET_WM_PID"], text=True, timeout=0.5, stderr=subprocess.DEVNULL
+                )
+                m = _re.search(r"=\s*(\d+)", p_out)
+                if m and int(m.group(1)) in ancestors:
+                    return int(w, 16)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
+def _set_terminal_visible(wid, visible):
+    """Show or hide an X11 window by ID using libX11.so.6 (no external tools required)."""
+    if not wid or not sys.platform.startswith("linux"):
+        return False
+    try:
+        import ctypes
+        import ctypes.util
+        lib_name = ctypes.util.find_library("X11") or "libX11.so.6"
+        x11 = ctypes.CDLL(lib_name)
+        x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        x11.XOpenDisplay.restype = ctypes.c_void_p
+        x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+        x11.XFlush.argtypes = [ctypes.c_void_p]
+        x11.XDefaultScreen.argtypes = [ctypes.c_void_p]
+        x11.XDefaultScreen.restype = ctypes.c_int
+        x11.XWithdrawWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int]
+        x11.XMapRaised.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+
+        dpy = x11.XOpenDisplay(None)
+        if not dpy:
+            return False
+        try:
+            if visible:
+                x11.XMapRaised(dpy, int(wid))
+            else:
+                scr = x11.XDefaultScreen(dpy)
+                x11.XWithdrawWindow(dpy, int(wid), scr)
+            x11.XFlush(dpy)
+            return True
+        finally:
+            x11.XCloseDisplay(dpy)
+    except Exception:
+        return False
+
+
 def _setup_tray(app, window, icon):
     """Create system tray icon next to Wi-Fi/battery with English background & quit options."""
     from PySide6 import QtWidgets
@@ -658,18 +748,32 @@ def _setup_tray(app, window, icon):
     tray.setToolTip("Sound OS - Dave Voice Assistant")
 
     menu = QtWidgets.QMenu()
-    toggle_act = menu.addAction("Hide Dave")
+    term_wid = _find_terminal_wid()
+    state = {"term_hidden": False}
 
-    def toggle_window():
-        if window.isVisible():
-            window.hide()
-            toggle_act.setText("Show Dave")
-        else:
-            window.show()
-            window.raise_()
-            toggle_act.setText("Hide Dave")
+    if term_wid:
+        toggle_act = menu.addAction("Hide Terminal")
 
-    toggle_act.triggered.connect(toggle_window)
+        def toggle_target():
+            new_hidden = not state["term_hidden"]
+            if _set_terminal_visible(term_wid, not new_hidden):
+                state["term_hidden"] = new_hidden
+                toggle_act.setText("Show Terminal" if new_hidden else "Hide Terminal")
+
+        window._restore_terminal = lambda: _set_terminal_visible(term_wid, True) if state["term_hidden"] else None
+    else:
+        toggle_act = menu.addAction("Hide Dave")
+
+        def toggle_target():
+            if window.isVisible():
+                window.hide()
+                toggle_act.setText("Show Dave")
+            else:
+                window.show()
+                window.raise_()
+                toggle_act.setText("Hide Dave")
+
+    toggle_act.triggered.connect(toggle_target)
 
     autostart_act = menu.addAction("Auto-start in Background")
     autostart_act.setCheckable(True)
@@ -690,7 +794,7 @@ def _setup_tray(app, window, icon):
             QtWidgets.QSystemTrayIcon.ActivationReason.Trigger,
             QtWidgets.QSystemTrayIcon.ActivationReason.DoubleClick,
         ):
-            toggle_window()
+            toggle_target()
 
     tray.activated.connect(on_activated)
     tray.setContextMenu(menu)
