@@ -445,6 +445,7 @@ def _wait_phrase_or_enter() -> bool:
                     pcm = b"".join(speech_frames)
                     audio_arr = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
                     try:
+                        _log("Heard audio, thinking...")
                         res = transcribe_wake(audio_arr) if transcribe_wake else transcribe(audio_arr)
                         text = _extract_stt_text(res)
                         try:

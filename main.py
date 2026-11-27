@@ -286,6 +286,11 @@ def listen_utterance(resolve_open_close: bool = True, prompt_user: bool = False)
     wav_path = record_utterance()
     if not wav_path:
         return {"text": "", "lang": "en", "confidence": 0.0}
+    print("[Sound OS] 👂 Heard you, thinking...", flush=True)
+    try:
+        say_bubble("Heard you, thinking...", seconds=10)
+    except Exception:
+        pass
     res = transcribe(wav_path)
     if resolve_open_close and res.get("text"):
         res = dict(res, text=_resolve_open_close(
@@ -343,7 +348,12 @@ if __name__ == "__main__":
                 if not pending_cmd:
                     continue
                 print(f"\n[Sound OS] 🚀 Command captured directly: {pending_cmd!r}")
+                print("[Sound OS] 👂 Heard you, thinking...", flush=True)
                 on_wake()
+                try:
+                    say_bubble("Heard you, thinking...", seconds=6)
+                except Exception:
+                    pass
                 handle(pending_cmd, ask_yes_no=listen_text)
             else:
                 print("\n[Sound OS] 🔔 Wake word detected!")

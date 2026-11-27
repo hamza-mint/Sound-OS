@@ -625,10 +625,12 @@ def _prepare(raw):
         "create ",
         t,
     )
-    # Egyptian Arabic spoken mishearings for excel/sheet commands
+    # Egyptian Arabic spoken mishearings for excel/sheet & volume commands
     t = re.sub(r"\b(?:ام\s*اللي|املي|ملي|امل)\b", "اعملي", t)
     t = re.sub(r"\b(?:الشيط|شيط|شيث|شد)\b", "شيت", t)
     t = re.sub(r"\b(?:اكسال|اكسيل|إكسيل|إكسال)\b", "اكسل", t)
+    t = re.sub(r"\b(?:حالي|هالي)\s+(?:سو|سوت|صو)\b", "علي الصوت", t)
+    t = re.sub(r"\bهل\s+(?:يصد|يسد|يست)\b", "علي الصوت", t)
 
     # NOTE: We previously had a _repair_whisper_close_open_mishearing() function here
     # that tried to convert "افتح المتصفح" -> "اقفل المتصفح" assuming Whisper mishears
