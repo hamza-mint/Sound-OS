@@ -654,6 +654,45 @@ def _set_autostart(enabled, icon=None):
         return False
 
 
+def _ancestor_pids():
+    """Return ordered list of ancestor PIDs starting from current process."""
+    ancestors = []
+    seen = set()
+    pid = os.getpid()
+    while pid > 1 and pid not in seen:
+        seen.add(pid)
+        ancestors.append(pid)
+        try:
+            with open(f"/proc/{pid}/stat", "r", encoding="utf-8", errors="ignore") as f:
+                stat = f.read()
+            rparen = stat.rfind(")")
+            if rparen == -1:
+                break
+            pid = int(stat[rparen + 2:].split()[1])
+        except Exception:
+            break
+    return ancestors
+
+
+def _find_konsole_service():
+    """Return DBus service name 'org.kde.konsole-<pid>' if running inside Konsole, else None."""
+    if not sys.platform.startswith("linux"):
+        return None
+    try:
+        from PySide6 import QtDBus
+        bus = QtDBus.QDBusConnection.sessionBus()
+        if not bus.isConnected():
+            return None
+        iface_bus = bus.interface()
+        for pid in _ancestor_pids():
+            svc = f"org.kde.konsole-{pid}"
+            if iface_bus.isServiceRegistered(svc).value():
+                return svc
+    except Exception:
+        pass
+    return None
+
+
 def _find_terminal_wid():
     """Return the X11 Window ID (int) of the terminal running Sound OS, or None."""
     if not sys.platform.startswith("linux") or not os.environ.get("DISPLAY"):
@@ -666,21 +705,7 @@ def _find_terminal_wid():
                 return wid
         except ValueError:
             pass
-    # Walk ancestor PIDs via /proc and match against _NET_CLIENT_LIST windows
-    ancestors = set()
-    pid = os.getpid()
-    while pid > 1 and pid not in ancestors:
-        ancestors.add(pid)
-        try:
-            with open(f"/proc/{pid}/stat", "r", encoding="utf-8", errors="ignore") as f:
-                stat = f.read()
-            rparen = stat.rfind(")")
-            if rparen == -1:
-                break
-            ppid = int(stat[rparen + 2:].split()[1])
-            pid = ppid
-        except Exception:
-            break
+    ancestors = set(_ancestor_pids())
     if not ancestors:
         return None
     try:
@@ -739,6 +764,35 @@ def _set_terminal_visible(wid, visible):
         return False
 
 
+def _make_terminal_toggler():
+    """Return a callable `set_visible(bool) -> bool` for the parent terminal, or None if unavailable."""
+    konsole_svc = _find_konsole_service()
+    if konsole_svc:
+        def _toggle_konsole(visible):
+            try:
+                from PySide6 import QtDBus
+                bus = QtDBus.QDBusConnection.sessionBus()
+                iface = QtDBus.QDBusInterface(
+                    konsole_svc, "/konsole/MainWindow_1", "org.qtproject.Qt.QWidget", bus
+                )
+                if not iface.isValid():
+                    return False
+                if visible:
+                    iface.call("show")
+                    iface.call("raise")
+                else:
+                    iface.call("hide")
+                return True
+            except Exception:
+                return False
+        return _toggle_konsole
+
+    term_wid = _find_terminal_wid()
+    if term_wid:
+        return lambda visible: _set_terminal_visible(term_wid, visible)
+    return None
+
+
 def _setup_tray(app, window, icon):
     """Create system tray icon next to Wi-Fi/battery with English background & quit options."""
     from PySide6 import QtWidgets
@@ -748,19 +802,19 @@ def _setup_tray(app, window, icon):
     tray.setToolTip("Sound OS - Dave Voice Assistant")
 
     menu = QtWidgets.QMenu()
-    term_wid = _find_terminal_wid()
+    toggle_terminal = _make_terminal_toggler()
     state = {"term_hidden": False}
 
-    if term_wid:
+    if toggle_terminal is not None:
         toggle_act = menu.addAction("Hide Terminal")
 
         def toggle_target():
             new_hidden = not state["term_hidden"]
-            if _set_terminal_visible(term_wid, not new_hidden):
+            if toggle_terminal(not new_hidden):
                 state["term_hidden"] = new_hidden
                 toggle_act.setText("Show Terminal" if new_hidden else "Hide Terminal")
 
-        window._restore_terminal = lambda: _set_terminal_visible(term_wid, True) if state["term_hidden"] else None
+        window._restore_terminal = lambda: toggle_terminal(True) if state["term_hidden"] else None
     else:
         toggle_act = menu.addAction("Hide Dave")
 
