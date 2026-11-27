@@ -144,6 +144,10 @@ def _check_repeat_open(parsed, ask_yes_no):
     """Returns (parsed_to_run, skip). May turn an open_app into close_app after the user says yes."""
     if os.environ.get("SOUNDOS_REPEAT_CHECK", "1") == "0" or parsed.get("intent") != "open_app" or ask_yes_no is None:
         return parsed, False
+    # Only suspect افتح/اقفل confusion on Arabic commands, never clear English ("Open the browser")
+    raw = parsed.get("raw_text") or ""
+    if parsed.get("lang") == "en" or (raw and not _ARABIC.search(raw)):
+        return parsed, False
     app = (parsed.get("params") or {}).get("app")
     last = _RECENT_OPEN.get(app)
     if not app or last is None or time.monotonic() - last > REPEAT_WINDOW_SEC:

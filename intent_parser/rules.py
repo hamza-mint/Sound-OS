@@ -615,8 +615,8 @@ def _prepare(raw):
     # Spoken English "create python/word/json file" misheard by Whisper in Arabic/English
     t = re.sub(r"\b(?:bison|by\s*some|pyson|pysan)\s*files?\b", "python file", t)
     t = re.sub(r"\b(?:bison|by\s*some|pyson|pysan)\b", "python", t)
-    t = re.sub(r"\b(?:باي\s*سنفايل|سنفايل)\b", "python file", t)
-    t = re.sub(r"\b(?:بلسن|باي\s*سن|بيسون|بايسون|بيشن|بيثون)\b", "python", t)
+    t = re.sub(r"\b(?:باي\s*سنفايل|سنفايل|بايز\s*ونفعل|بايزون\s*فعل|بايز\s*فعل)\b", "python file", t)
+    t = re.sub(r"\b(?:بلسن|باي\s*سن|بيسون|بايسون|بيشن|بيثون|بايزون)\b", "python", t)
     t = re.sub(r"\b(?:وردفايي|وردفاي|وردفايل)\b", "word file", t)
     t = re.sub(r"\bjason\s+fail\b", "json file", t)
     t = re.sub(r"\b(?:فايل|فايي|فاي)\b", "file", t)

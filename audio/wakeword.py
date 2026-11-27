@@ -330,9 +330,9 @@ def _classify(text: str, full_decode=None):
         cmd = _strip_wake_word(text)
         if cmd and _NOT_A_CALL_RE.match(cmd):
             return ("needs_wake", ("talk_about_dave", text))
-        return ("wake", cmd if cmd and parse(cmd)["intent"] != "unknown" else None)
+        return ("wake", cmd if cmd and parse(cmd, allow_llm=False)["intent"] != "unknown" else None)
     def verdict(cand):
-        res = parse(cand)
+        res = parse(cand, allow_llm=False)
         intent = res["intent"]
         if intent == "unknown":
             return None
