@@ -83,6 +83,13 @@ def _read_window(proc):
 
 
 def _on_window_event(event):
+    if event.get("quit_app"):
+        import signal
+        try:
+            os.kill(os.getpid(), signal.SIGINT)
+        except Exception:
+            os._exit(0)
+        return
     text = event.get("speak")
     if text and SPEAK_OWN_LINES:
         from . import dave_voice
@@ -288,6 +295,11 @@ def _make_window_class():
         def begin_exit(self):
             if self.phase == "outro":
                 return
+            if getattr(self, "_tray_icon", None) is not None:
+                try:
+                    self._tray_icon.hide()
+                except Exception:
+                    pass
             self.phase, self.phase_t0 = "outro", time.perf_counter()
             self.start = self.pos()                    # leave from wherever he is now
             self.pending = []
@@ -536,15 +548,157 @@ def _make_window_class():
         def contextMenuEvent(self, event):
             menu = QtWidgets.QMenu(self)
             hi = menu.addAction("Say hi")
-            bye = menu.addAction("Send Dave home")
+            hide_act = menu.addAction("Hide to background")
+            menu.addSeparator()
+            quit_act = menu.addAction("Quit Sound OS")
             chosen = menu.exec(event.globalPos())
             if chosen == hi:
                 self.say(GREETING, GREET_SECONDS)
                 self.emit({"speak": GREETING})
-            elif chosen == bye:
+            elif chosen == hide_act:
+                self.hide()
+            elif chosen == quit_act:
+                self.emit({"quit_app": True})
                 self.begin_exit()
 
     return DaveWindow
+
+
+def _make_logo_icon():
+    """Draw a crisp Sound OS vector logo (squircle badge + glowing sound-wave bars) as a multi-size QIcon."""
+    from PySide6 import QtCore, QtGui
+    icon = QtGui.QIcon()
+    for sz in (32, 64, 128):
+        pm = QtGui.QPixmap(sz, sz)
+        pm.fill(QtCore.Qt.GlobalColor.transparent)
+        p = QtGui.QPainter(pm)
+        try:
+            p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+            s = float(sz)
+            pad = s * 0.06
+            rect = QtCore.QRectF(pad, pad, s - 2 * pad, s - 2 * pad)
+            grad = QtGui.QLinearGradient(0, 0, s, s)
+            grad.setColorAt(0.0, QtGui.QColor("#0f172a"))
+            grad.setColorAt(1.0, QtGui.QColor("#1d4ed8"))
+            p.setPen(QtGui.QPen(QtGui.QColor("#38bdf8"), max(1.5, s * 0.045)))
+            p.setBrush(grad)
+            p.drawRoundedRect(rect, s * 0.26, s * 0.26)
+
+            # 5 sound-wave bars in the center
+            heights = (0.24, 0.44, 0.62, 0.44, 0.24)
+            bar_w = s * 0.085
+            gap = s * 0.05
+            total_w = len(heights) * bar_w + (len(heights) - 1) * gap
+            x0 = (s - total_w) / 2.0
+            p.setPen(QtCore.Qt.PenStyle.NoPen)
+            for idx, h_frac in enumerate(heights):
+                bh = s * h_frac
+                bx = x0 + idx * (bar_w + gap)
+                by = (s - bh) / 2.0
+                p.setBrush(QtGui.QColor("#38bdf8" if idx in (1, 3) else "#ffffff"))
+                p.drawRoundedRect(QtCore.QRectF(bx, by, bar_w, bh), bar_w / 2.0, bar_w / 2.0)
+        finally:
+            if p.isActive():
+                p.end()
+        icon.addPixmap(pm)
+    return icon
+
+
+def _autostart_path():
+    cfg = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(cfg, "autostart", "sound-os.desktop")
+
+
+def _is_autostart_enabled():
+    return os.path.isfile(_autostart_path())
+
+
+def _set_autostart(enabled, icon=None):
+    """Enable or disable Linux XDG autostart in background (~/.config/autostart/sound-os.desktop)."""
+    path = _autostart_path()
+    try:
+        if not enabled:
+            if os.path.exists(path):
+                os.remove(path)
+            return True
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        main_py = os.path.join(root, "main.py")
+        icon_path = os.path.expanduser("~/.local/share/icons/sound-os.png")
+        if icon is not None:
+            try:
+                os.makedirs(os.path.dirname(icon_path), exist_ok=True)
+                icon.pixmap(128, 128).save(icon_path, "PNG")
+            except Exception:
+                icon_path = "audio-input-microphone"
+        desktop = (
+            "[Desktop Entry]\n"
+            "Type=Application\n"
+            "Name=Sound OS\n"
+            "Comment=Sound OS Voice Assistant (Background)\n"
+            f"Exec={sys.executable} {main_py}\n"
+            f"Path={root}\n"
+            f"Icon={icon_path}\n"
+            "Terminal=false\n"
+            "X-GNOME-Autostart-enabled=true\n"
+        )
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(desktop)
+        return True
+    except Exception:
+        return False
+
+
+def _setup_tray(app, window, icon):
+    """Create system tray icon next to Wi-Fi/battery with English background & quit options."""
+    from PySide6 import QtWidgets
+    if not QtWidgets.QSystemTrayIcon.isSystemTrayAvailable():
+        return None
+    tray = QtWidgets.QSystemTrayIcon(icon, parent=window)
+    tray.setToolTip("Sound OS - Dave Voice Assistant")
+
+    menu = QtWidgets.QMenu()
+    toggle_act = menu.addAction("Hide Dave")
+
+    def toggle_window():
+        if window.isVisible():
+            window.hide()
+            toggle_act.setText("Show Dave")
+        else:
+            window.show()
+            window.raise_()
+            toggle_act.setText("Hide Dave")
+
+    toggle_act.triggered.connect(toggle_window)
+
+    autostart_act = menu.addAction("Auto-start in Background")
+    autostart_act.setCheckable(True)
+    autostart_act.setChecked(_is_autostart_enabled())
+    autostart_act.triggered.connect(lambda checked: _set_autostart(checked, icon))
+
+    menu.addSeparator()
+    quit_act = menu.addAction("Quit Sound OS")
+
+    def quit_all():
+        window.emit({"quit_app": True})
+        window.begin_exit()
+
+    quit_act.triggered.connect(quit_all)
+
+    def on_activated(reason):
+        if reason in (
+            QtWidgets.QSystemTrayIcon.ActivationReason.Trigger,
+            QtWidgets.QSystemTrayIcon.ActivationReason.DoubleClick,
+        ):
+            toggle_window()
+
+    tray.activated.connect(on_activated)
+    tray.setContextMenu(menu)
+    tray.show()
+    # Keep references alive on window so Qt doesn't garbage-collect them
+    window._tray_icon = tray
+    window._tray_menu = menu
+    return tray
 
 
 def _window_main():
@@ -578,7 +732,12 @@ def _window_main():
         sys.exit(2)
 
     app = QtWidgets.QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
+    icon = _make_logo_icon()
+    app.setWindowIcon(icon)
     window = _make_window_class()(commands)
+    window.setWindowIcon(icon)
+    _setup_tray(app, window, icon)
     threading.Thread(target=reader, daemon=True).start()
     window.show()
     code = app.exec()
